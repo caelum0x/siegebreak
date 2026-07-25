@@ -24,6 +24,7 @@ namespace FPClash
         public float bodyHeight = 2.0f;
         public float bodyRadius = 0.55f;
         public Color bodyColor = new Color(0.8f, 0.8f, 0.85f);
+        public float lifesteal = 0f;         // fraction of damage dealt returned to the attacker as health (0 = none)
 
         /// <summary>The roster available in the character select screen.</summary>
         public static readonly List<CharacterConfig> Roster = new List<CharacterConfig>
@@ -85,6 +86,18 @@ namespace FPClash
                 attackCooldown = 0.65f, attackWindup = 0.12f,
                 bodyHeight = 1.8f, bodyRadius = 0.50f,
                 bodyColor = new Color(0.55f, 0.30f, 0.65f)
+            },
+            new CharacterConfig
+            {
+                // Sustain bruiser: middling stats, but every hit drains life from
+                // the target back into itself — wins drawn-out brawls, weak to burst.
+                id = "reaper", displayName = "Reaper",
+                maxHealth = 900f, moveSpeed = 4.6f,
+                attackDamage = 120f, attackRange = 2.3f, attackAngle = 110f,
+                attackCooldown = 1.05f, attackWindup = 0.24f,
+                bodyHeight = 2.05f, bodyRadius = 0.56f,
+                bodyColor = new Color(0.45f, 0.05f, 0.12f),
+                lifesteal = 0.35f
             },
         };
 

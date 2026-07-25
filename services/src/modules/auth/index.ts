@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/auth";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../lib/jwt";
+import { strictRateLimitConfig } from "../../lib/rateLimit";
 import { verifyAppleToken, verifyGoogleToken, VerifiedIdentity } from "./providers";
 
 const guestSchema = z.object({ deviceId: z.string().min(8) });
@@ -16,7 +17,7 @@ export async function authRoutes(app: FastifyInstance) {
   // guest to Apple/Google later should re-bind authProviderId on the same
   // Player row rather than creating a second one; that flow isn't built
   // yet, flagging it so it doesn't get lost.
-  app.post("/auth/guest", async (req, reply) => {
+  app.post("/auth/guest", { config: strictRateLimitConfig() }, async (req, reply) => {
     const { deviceId } = guestSchema.parse(req.body);
 
     let player = await prisma.player.findUnique({ where: { authProviderId: deviceId } });
@@ -34,14 +35,14 @@ export async function authRoutes(app: FastifyInstance) {
     return issueTokens(player.id, player.tokenVersion);
   });
 
-  app.post("/auth/apple", async (req, reply) => {
+  app.post("/auth/apple", { config: strictRateLimitConfig() }, async (req, reply) => {
     const { identityToken } = z.object({ identityToken: z.string() }).parse(req.body);
     const identity = await verifyAppleToken(identityToken);
     const player = await upsertFromIdentity(identity);
     return issueTokens(player.id, player.tokenVersion);
   });
 
-  app.post("/auth/google", async (req, reply) => {
+  app.post("/auth/google", { config: strictRateLimitConfig() }, async (req, reply) => {
     const { idToken } = z.object({ idToken: z.string() }).parse(req.body);
     const identity = await verifyGoogleToken(idToken);
     const player = await upsertFromIdentity(identity);
@@ -53,7 +54,7 @@ export async function authRoutes(app: FastifyInstance) {
   // progress, so this must never create a second Player row. Auth'd with the
   // guest's own access token; the verified provider `sub` becomes the new
   // authProviderId.
-  app.post("/auth/link", { preHandler: requireAuth }, async (req, reply) => {
+  app.post("/auth/link", { preHandler: requireAuth, config: strictRateLimitConfig() }, async (req, reply) => {
     const { provider, token } = linkSchema.parse(req.body);
     const identity =
       provider === "apple" ? await verifyAppleToken(token) : await verifyGoogleToken(token);
@@ -85,7 +86,7 @@ export async function authRoutes(app: FastifyInstance) {
   // Rotates on every use: bumping tokenVersion means a stolen refresh
   // token stops working the moment the legitimate client refreshes next,
   // and lets you force-logout a player by bumping it server-side.
-  app.post("/auth/refresh", async (req, reply) => {
+  app.post("/auth/refresh", { config: strictRateLimitConfig() }, async (req, reply) => {
     const { refreshToken } = z.object({ refreshToken: z.string() }).parse(req.body);
 
     let payload;

@@ -196,6 +196,11 @@ namespace FPClash
                     if (ang > halfArc) continue;
                 }
                 c.TakeDamage(Config.attackDamage, this);
+
+                // Lifesteal: heal this unit for a fraction of the damage dealt.
+                // Health.Heal clamps to max, so overheal is impossible.
+                if (Config.lifesteal > 0f && IsAlive && Health != null)
+                    Health.Heal(Config.attackDamage * Config.lifesteal);
             }
         }
 

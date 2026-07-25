@@ -33,6 +33,17 @@ namespace FPClash
                 Died?.Invoke(source);
         }
 
+        /// <summary>
+        /// Restores health, clamped to Max. Mirrors ApplyDamage's guards (ignored
+        /// when dead or amount is non-positive). Health bars poll Fraction, so no
+        /// explicit refresh event is required.
+        /// </summary>
+        public void Heal(float amount)
+        {
+            if (!IsAlive || amount <= 0f) return;
+            Current = Mathf.Min(Max, Current + amount);
+        }
+
         public void Revive()
         {
             Current = Max;

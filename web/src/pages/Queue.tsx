@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cancelMatch, getDecks, getMatchStatus, queueMatch } from "../api/client";
 import type { Deck, MatchTicket } from "../types";
+import { MatchFound } from "./MatchFound";
 
 type QueueState = "idle" | "queued" | "matched";
 
@@ -85,6 +86,18 @@ export function Queue() {
     setTicket(null);
   };
 
+  if (state === "matched") {
+    return (
+      <main className="page">
+        <MatchFound
+          sessionId={ticket?.sessionId ?? "unknown"}
+          deckId={ticket?.deckId ?? selectedDeckId}
+          onBackToMenu={onCancel}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="page">
       <h2>Matchmaking</h2>
@@ -129,14 +142,6 @@ export function Queue() {
 
       <div className="queue__status" role="status">
         {state === "queued" && <p className="pulse">Searching…</p>}
-        {state === "matched" && (
-          <div className="alert alert--ok">
-            <p>Match found!</p>
-            <p>
-              Session: <code>{ticket?.sessionId ?? "unknown"}</code>
-            </p>
-          </div>
-        )}
       </div>
 
       {error && (

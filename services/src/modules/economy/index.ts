@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth";
 import { prisma } from "../../lib/prisma";
+import { strictRateLimitConfig } from "../../lib/rateLimit";
 import { verifyReceipt } from "./receiptVerification";
 
 export async function economyRoutes(app: FastifyInstance) {
@@ -10,7 +11,7 @@ export async function economyRoutes(app: FastifyInstance) {
     return wallet ?? { playerId: req.playerId, gold: 0, gems: 0 };
   });
 
-  app.post("/economy/purchase/validate", { preHandler: requireAuth }, async (req, reply) => {
+  app.post("/economy/purchase/validate", { preHandler: requireAuth, config: strictRateLimitConfig() }, async (req, reply) => {
     const body = z
       .object({ receipt: z.string(), platform: z.enum(["ios", "android"]) })
       .parse(req.body);
