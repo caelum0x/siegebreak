@@ -79,9 +79,16 @@ namespace FPClash
 
             var roster = CharacterConfig.Roster;
             _cardButtons = new Button[roster.Count];
-            float cardH = 200f, gap = 30f;
-            float startY = -420f;
-            for (int i = 0; i < roster.Count; i++)
+            // Size cards to the roster so any number of champions fits between the
+            // subtitle and the FIGHT button instead of a fixed pitch that overflows
+            // once the roster grows past four.
+            const float startY = -420f;      // top of the first card (top-anchored)
+            const float bottomLimit = -1600f; // keep clear of the FIGHT button below
+            const float gap = 24f;
+            int count = roster.Count;
+            float available = startY - bottomLimit; // vertical budget for all cards
+            float cardH = Mathf.Clamp((available - (count - 1) * gap) / count, 96f, 200f);
+            for (int i = 0; i < count; i++)
             {
                 var cfg = roster[i];
                 int idx = i;

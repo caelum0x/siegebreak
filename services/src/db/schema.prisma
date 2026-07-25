@@ -1,0 +1,95 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // Neon connection string
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Player {
+  id             String   @id @default(uuid())
+  displayName    String
+  level          Int      @default(1)
+  xp             Int      @default(0)
+  authProvider   String // guest | apple | google
+  authProviderId String   @unique // device id for guest, provider "sub" for apple/google
+  tokenVersion   Int      @default(0) // bumped on every refresh; invalidates any older refresh token
+  createdAt      DateTime @default(now())
+
+  cards   PlayerCard[]
+  decks   Deck[]
+  wallet  Wallet?
+  matches MatchParticipant[]
+}
+
+model Card {
+  id         String @id
+  name       String
+  type       String // troop | spell | building | hero
+  elixirCost Int
+  baseStats  Json
+
+  owners PlayerCard[]
+}
+
+model PlayerCard {
+  playerId String
+  cardId   String
+  level    Int @default(1)
+  shards   Int @default(0)
+
+  player Player @relation(fields: [playerId], references: [id])
+  card   Card   @relation(fields: [cardId], references: [id])
+
+  @@id([playerId, cardId])
+}
+
+model Deck {
+  id       String   @id @default(uuid())
+  playerId String
+  name     String
+  slots    String[] // 8 card ids, slot 0 must be type=hero
+
+  player Player @relation(fields: [playerId], references: [id])
+}
+
+model Match {
+  id        String    @id @default(uuid())
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  region    String
+  mode      String
+
+  participants MatchParticipant[]
+}
+
+model MatchParticipant {
+  matchId       String
+  playerId      String
+  deckId        String
+  result        String // win | loss | draw
+  trophiesDelta Int
+
+  match  Match  @relation(fields: [matchId], references: [id])
+  player Player @relation(fields: [playerId], references: [id])
+
+  @@id([matchId, playerId])
+}
+
+model Wallet {
+  playerId String @id
+  gold     Int    @default(0)
+  gems     Int    @default(0)
+
+  player Player @relation(fields: [playerId], references: [id])
+}
+
+model Purchase {
+  id          String    @id @default(uuid())
+  playerId    String
+  productId   String
+  receipt     String
+  validatedAt DateTime?
+  granted     Boolean   @default(false)
+}

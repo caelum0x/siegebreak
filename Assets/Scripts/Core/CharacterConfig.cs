@@ -64,6 +64,28 @@ namespace FPClash
                 bodyHeight = 1.5f, bodyRadius = 0.45f,
                 bodyColor = new Color(0.35f, 0.7f, 0.35f)
             },
+            new CharacterConfig
+            {
+                // Fortress on legs: soaks and hits like a truck, but slow with a
+                // narrow arc and a long windup — punishes whiffs, rewards commitment.
+                id = "golem", displayName = "Golem",
+                maxHealth = 1800f, moveSpeed = 3.4f,
+                attackDamage = 210f, attackRange = 2.8f, attackAngle = 90f,
+                attackCooldown = 1.6f, attackWindup = 0.35f,
+                bodyHeight = 2.6f, bodyRadius = 0.75f,
+                bodyColor = new Color(0.40f, 0.36f, 0.30f)
+            },
+            new CharacterConfig
+            {
+                // Glass-cannon assassin: fastest in the roster with a tight, quick
+                // strike, but folds the instant it's caught out of position.
+                id = "bandit", displayName = "Bandit",
+                maxHealth = 620f, moveSpeed = 6.2f,
+                attackDamage = 100f, attackRange = 2.2f, attackAngle = 80f,
+                attackCooldown = 0.65f, attackWindup = 0.12f,
+                bodyHeight = 1.8f, bodyRadius = 0.50f,
+                bodyColor = new Color(0.55f, 0.30f, 0.65f)
+            },
         };
 
         public static CharacterConfig ById(string id)

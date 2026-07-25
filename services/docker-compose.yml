@@ -1,0 +1,15 @@
+# Local dev only. Production uses Neon (Postgres) + a managed Redis —
+# this compose file exists to run the API against something locally,
+# not to describe the production topology.
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: .env
+    depends_on:
+      - redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

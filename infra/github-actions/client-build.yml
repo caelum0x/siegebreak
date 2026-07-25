@@ -1,0 +1,17 @@
+name: Client Build
+on:
+  push:
+    branches: [main]
+    paths: ["client/**"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          targetPlatform: StandaloneWindows64
+      # Add a matrix entry for Android/iOS once mobile input is prototyped.
