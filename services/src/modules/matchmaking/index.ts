@@ -1,14 +1,21 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth";
+import { prisma } from "../../lib/prisma";
 import { enqueue, dequeue, getStatus } from "./matcher";
 
-const DEFAULT_MMR = 1000; // TODO: replace with a real rating table lookup
+const FALLBACK_MMR = 1000; // only used if the player row somehow lacks a rating
 
 export async function matchmakingRoutes(app: FastifyInstance) {
   app.post("/matchmaking/queue", { preHandler: requireAuth }, async (req, reply) => {
     const { deckId } = z.object({ deckId: z.string() }).parse(req.body);
-    await enqueue(req.playerId!, DEFAULT_MMR, deckId);
+    // Queue at the player's persisted rating so pairing reflects real skill,
+    // not a flat constant. Rating is updated on match completion (see matches).
+    const player = await prisma.player.findUnique({
+      where: { id: req.playerId! },
+      select: { rating: true },
+    });
+    await enqueue(req.playerId!, player?.rating ?? FALLBACK_MMR, deckId);
     return { status: "queued" };
   });
 

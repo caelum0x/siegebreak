@@ -126,6 +126,18 @@ describe("matchmaking end-to-end (real Redis + matcher tick)", () => {
     expect(statusB.deckId).toBe("deck-b");
   });
 
+  it("queues a player at their persisted rating, not a flat default", async () => {
+    const a = await guestLogin("device-rating-1");
+    const player = await prisma.player.findFirstOrThrow({ where: { authProviderId: "device-rating-1" } });
+    await prisma.player.update({ where: { id: player.id }, data: { rating: 1337 } });
+
+    await app.inject({ method: "POST", url: "/matchmaking/queue", headers: bearer(a.accessToken), payload: { deckId: "d" } });
+
+    // The queue is an MMR-scored sorted set; the score must be the real rating.
+    const score = await redis.zscore("mm:queue", player.id);
+    expect(Number(score)).toBe(1337);
+  });
+
   it("cancel removes the ticket so a later tick does not match", async () => {
     const a = await guestLogin("device-mm-a2");
     await app.inject({ method: "POST", url: "/matchmaking/queue", headers: bearer(a.accessToken), payload: { deckId: "deck-a" } });
@@ -164,6 +176,18 @@ describe("match completion -> leaderboard (real DB + Redis)", () => {
     // Participants persisted.
     const participants = await prisma.matchParticipant.findMany({ where: { matchId: "match-int-1" } });
     expect(participants).toHaveLength(2);
+
+    // Progression applied: winner's rating rose above the 1000 default and the
+    // loser's fell (Elo is symmetric), and both earned XP + gold per outcome.
+    const winner = await prisma.player.findUnique({ where: { id: p1.id }, include: { wallet: true } });
+    const loser = await prisma.player.findUnique({ where: { id: p2.id }, include: { wallet: true } });
+    expect(winner!.rating).toBeGreaterThan(1000);
+    expect(loser!.rating).toBeLessThan(1000);
+    expect(winner!.rating - 1000).toBe(1000 - loser!.rating); // zero-sum
+    expect(winner!.xp).toBe(30);
+    expect(loser!.xp).toBe(10);
+    expect(winner!.wallet!.gold).toBe(10);
+    expect(loser!.wallet!.gold).toBe(2);
 
     // Leaderboard reflects deltas, highest first.
     const board = (await app.inject({ method: "GET", url: "/leaderboard/2026-int" })).json();

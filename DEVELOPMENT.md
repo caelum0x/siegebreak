@@ -38,9 +38,9 @@ Quality gates:
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest — 40 unit tests (deps mocked)
+npm test                 # vitest — 52 unit tests (deps mocked)
 npm run build            # tsc -> dist/
-npm run test:integration # 8 tests against REAL Postgres + Redis
+npm run test:integration # 9 tests against REAL Postgres + Redis
 ```
 
 **Integration tests** (`test-integration/`) run the app against a live database

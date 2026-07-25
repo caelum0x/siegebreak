@@ -12,6 +12,7 @@ model Player {
   displayName    String
   level          Int      @default(1)
   xp             Int      @default(0)
+  rating         Int      @default(1000) // Elo-style matchmaking rating (MMR)
   authProvider   String // guest | apple | google
   authProviderId String   @unique // device id for guest, provider "sub" for apple/google
   tokenVersion   Int      @default(0) // bumped on every refresh; invalidates any older refresh token
