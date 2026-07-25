@@ -37,10 +37,25 @@ npm run dev                     # http://localhost:8080  (GET /health -> {status
 Quality gates:
 
 ```bash
-npm run typecheck   # tsc --noEmit
-npm test            # vitest — 40 tests (auth, matchmaking, matches, cards, CORS, jwt)
-npm run build       # tsc -> dist/
+npm run typecheck        # tsc --noEmit
+npm test                 # vitest — 40 unit tests (deps mocked)
+npm run build            # tsc -> dist/
+npm run test:integration # 8 tests against REAL Postgres + Redis
 ```
+
+**Integration tests** (`test-integration/`) run the app against a live database
+and Redis — the paths the unit tests mock (Prisma queries/transactions/FKs,
+Redis sorted-sets). Bring the infra up with `docker compose up -d postgres redis`
+(or point `DATABASE_URL`/`REDIS_URL` at your own), then:
+
+```bash
+npx prisma migrate deploy   # apply the schema
+npm run seed                # load the card catalog
+npm run test:integration
+```
+
+CI (`infra/github-actions/services-ci.yml`) does exactly this with Postgres +
+Redis service containers on every PR touching `services/`.
 
 Notable endpoints:
 

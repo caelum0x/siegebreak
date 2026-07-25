@@ -1,6 +1,6 @@
 # Local dev only. Production uses Neon (Postgres) + a managed Redis —
-# this compose file exists to run the API against something locally,
-# not to describe the production topology.
+# this compose file exists to run the API (and integration tests) against
+# something locally, not to describe the production topology.
 services:
   api:
     build: .
@@ -8,7 +8,21 @@ services:
       - "8080:8080"
     env_file: .env
     depends_on:
+      - postgres
       - redis
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: siegebreak_test
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   redis:
     image: redis:7-alpine
     ports:
