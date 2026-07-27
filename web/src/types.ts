@@ -40,6 +40,27 @@ export interface MatchTicket {
   deckId?: string;
 }
 
+export interface SessionParticipant {
+  playerId: string;
+  deckId: string;
+}
+
+export interface SessionConnection {
+  provider: string;
+  roomName: string;
+}
+
+/** A concrete allocated realtime room the matched clients connect to. */
+export interface GameSession {
+  id: string;
+  mode: string;
+  region: string;
+  status: "allocated";
+  createdAt: number;
+  participants: SessionParticipant[];
+  connection: SessionConnection;
+}
+
 export interface LeaderboardEntry {
   playerId: string;
   trophies: number;

@@ -8,6 +8,7 @@ import type {
   Card,
   CreateDeckInput,
   Deck,
+  GameSession,
   LeaderboardEntry,
   MatchHistoryEntry,
   MatchTicket,
@@ -176,6 +177,13 @@ export function getMatchStatus(): Promise<MatchTicket> {
 
 export function cancelMatch(): Promise<StatusResponse> {
   return request<StatusResponse>("/matchmaking/cancel", { method: "POST", auth: true });
+}
+
+export function getMatchSession(sessionId: string): Promise<GameSession> {
+  return request<GameSession>(
+    `/matches/session/${encodeURIComponent(sessionId)}`,
+    { auth: true }
+  );
 }
 
 export function getLeaderboard(seasonId: string): Promise<LeaderboardEntry[]> {

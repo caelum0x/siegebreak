@@ -1,9 +1,12 @@
 import { redis } from "../../lib/redis";
+import { createSession } from "../sessions/sessionStore";
 
 const QUEUE_KEY = "mm:queue"; // sorted set: score = MMR, member = playerId
 const TICKET_PREFIX = "mm:ticket:"; // hash per player: deckId, status, sessionId
 
 const MMR_MATCH_WINDOW = 150; // widen this over wait time once real MMR exists
+const MATCH_MODE = "1v1"; // only mode for now; carried onto the allocated session
+const MATCH_REGION = process.env.MATCH_REGION || "eu";
 
 export interface QueuedPlayer {
   id: string;
@@ -62,8 +65,8 @@ export async function runMatchTick() {
   players.sort((a, b) => a.mmr - b.mmr);
 
   for (const [a, b] of computePairings(players, MMR_MATCH_WINDOW)) {
-    const sessionId = await allocateFusionSession([a.id, b.id]);
-    await Promise.all([markMatched(a.id, sessionId), markMatched(b.id, sessionId)]);
+    const session = await allocateSession([a.id, b.id]);
+    await Promise.all([markMatched(a.id, session.id), markMatched(b.id, session.id)]);
   }
 }
 
@@ -76,9 +79,16 @@ async function markMatched(playerId: string, sessionId: string) {
   await redis.hset(`${TICKET_PREFIX}${playerId}`, { status: "matched", sessionId });
 }
 
-async function allocateFusionSession(playerIds: string[]): Promise<string> {
-  // TODO: call Photon Fusion's session/room allocation (or your own
-  // dedicated-server allocator if you move off Fusion Cloud later) and
-  // return the session id the two clients should connect to.
-  return `session_${playerIds.join("_")}_${Date.now()}`;
+// Allocate a real game session for a matched pair. Each participant's queued
+// deck is read back from their ticket so the session carries what they'll play,
+// and the persisted session is what GET /matches/session/:id serves to the
+// clients (and what the trusted game server consumes to spin up the room).
+async function allocateSession(playerIds: readonly string[]) {
+  const participants = await Promise.all(
+    playerIds.map(async (playerId) => ({
+      playerId,
+      deckId: (await redis.hget(`${TICKET_PREFIX}${playerId}`, "deckId")) ?? "",
+    }))
+  );
+  return createSession({ mode: MATCH_MODE, region: MATCH_REGION, participants });
 }

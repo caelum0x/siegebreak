@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getMatchSession } from "../api/client";
+import type { GameSession } from "../types";
 
 interface MatchFoundProps {
-  /** Photon realtime session the client would connect to. */
+  /** Allocated realtime session id the client connects to. */
   sessionId: string;
   /** Deck the player is taking into the battle. */
   deckId: string;
@@ -12,14 +14,37 @@ interface MatchFoundProps {
 type ConnectState = "ready" | "connecting";
 
 /**
- * Presentational "Match Found" view shown once matchmaking resolves.
+ * "Match Found" view shown once matchmaking resolves. It loads the concrete
+ * allocated session (GET /matches/session/:id) so it can show the real room to
+ * connect to, the opponents, and which realtime provider the room lives on.
  *
- * "Enter Battle" is a deliberate stub: there is no realtime (Photon) client
- * wired up yet, so it only surfaces a "connecting" state to make the intended
- * next step obvious without pretending a connection exists.
+ * "Enter Battle" surfaces a connecting state against that real room name. The
+ * realtime battle client itself (Photon / dedicated server) is a separate
+ * integration, so this stops at "connecting" rather than pretending a socket is
+ * open — but everything it shows is now real allocated data, not a placeholder.
  */
 export function MatchFound({ sessionId, deckId, onBackToMenu }: MatchFoundProps) {
   const [connect, setConnect] = useState<ConnectState>("ready");
+  const [session, setSession] = useState<GameSession | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId || sessionId === "unknown") return;
+    let active = true;
+    getMatchSession(sessionId)
+      .then((s) => {
+        if (active) setSession(s);
+      })
+      .catch(() => {
+        if (active) setLoadError("Could not load session details.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
+
+  const roomName = session?.connection.roomName ?? sessionId;
+  const opponents = session?.participants.filter((p) => p.deckId !== deckId) ?? [];
 
   const onEnterBattle = (): void => {
     setConnect("connecting");
@@ -45,15 +70,47 @@ export function MatchFound({ sessionId, deckId, onBackToMenu }: MatchFoundProps)
             <code>{deckId || "unknown"}</code>
           </dd>
         </div>
+        {session && (
+          <>
+            <div className="match-found__row">
+              <dt className="match-found__key">Mode</dt>
+              <dd className="match-found__value">
+                {session.mode} · {session.region}
+              </dd>
+            </div>
+            <div className="match-found__row">
+              <dt className="match-found__key">Realtime</dt>
+              <dd className="match-found__value">
+                <code>{session.connection.provider}</code>
+              </dd>
+            </div>
+            <div className="match-found__row">
+              <dt className="match-found__key">Opponent</dt>
+              <dd className="match-found__value">
+                {opponents.length > 0 ? (
+                  <code>{opponents.map((o) => o.playerId).join(", ")}</code>
+                ) : (
+                  <span className="muted">—</span>
+                )}
+              </dd>
+            </div>
+          </>
+        )}
       </dl>
+
+      {loadError && (
+        <p className="match-found__hint muted" role="status">
+          {loadError}
+        </p>
+      )}
 
       {connect === "connecting" ? (
         <p className="match-found__connecting pulse" role="status">
-          Connecting to {sessionId}…
+          Connecting to {roomName}…
         </p>
       ) : (
         <p className="match-found__hint muted">
-          Realtime battle client is not wired up yet — Enter Battle is a stub.
+          Session allocated. Enter Battle connects to room <code>{roomName}</code>.
         </p>
       )}
 

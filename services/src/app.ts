@@ -13,6 +13,7 @@ import { matchmakingRoutes } from "./modules/matchmaking";
 import { economyRoutes } from "./modules/economy";
 import { leaderboardRoutes } from "./modules/leaderboard";
 import { matchRoutes } from "./modules/matches";
+import { sessionRoutes } from "./modules/sessions";
 import { analyticsRoutes } from "./modules/analytics";
 
 // Builds the Fastify instance without binding a port, so tests can drive it
@@ -87,6 +88,7 @@ export function buildApp(): FastifyInstance {
   app.register(economyRoutes);
   app.register(leaderboardRoutes);
   app.register(matchRoutes);
+  app.register(sessionRoutes);
   app.register(analyticsRoutes);
 
   app.setErrorHandler((err, req, reply) => {

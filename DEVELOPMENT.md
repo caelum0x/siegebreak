@@ -38,7 +38,7 @@ Quality gates:
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest — 60 unit tests (deps mocked)
+npm test                 # vitest — 79 unit tests (deps mocked)
 npm run build            # tsc -> dist/
 npm run test:integration # 9 tests against REAL Postgres + Redis
 ```
@@ -64,6 +64,7 @@ Notable endpoints:
 | Auth          | `POST /auth/guest` · `/auth/apple` · `/auth/google` · `/auth/refresh` · `/auth/link` | mixed / player  |
 | Cards & decks | `GET /cards` · `GET,POST /players/me/decks`                    | player (decks)  |
 | Player        | `GET /players/me` · `GET /players/me/matches` · `GET /profile/:playerId` | player / public |
+| Sessions      | `GET /matches/session/:id`                                    | player (participant) |
 | Matchmaking   | `POST /matchmaking/queue,cancel` · `GET /matchmaking/status`   | player          |
 | Economy       | `GET /economy/wallet` · `POST /economy/purchase/validate`      | player          |
 | Leaderboard   | `GET /leaderboard/:seasonId`                                   | public          |
@@ -74,9 +75,17 @@ Two auth boundaries: **player** JWTs (`Authorization: Bearer <accessToken>`,
 via `requireAuth`) and a **server-to-server** shared secret (`MATCH_SERVER_SECRET`,
 via `requireMatchServer`) for the trusted game server reporting match results.
 
+Matchmaking now allocates a **real game session** on a match: `matcher.ts`
+reads each queued player's deck and writes a session record to Redis via
+`modules/sessions/sessionStore.ts` (id, mode, region, participants, and a
+`connection` block naming the realtime provider + room). The two clients read
+it back through `GET /matches/session/:id` (participant-scoped). Set
+`SESSION_PROVIDER=photon` to route the room through Photon Fusion instead of
+the default `local` dedicated-session model — the allocation contract is
+identical across providers.
+
 Still stubbed by design (need real credentials/services): IAP receipt
-verification (`economy/receiptVerification.ts`), and the Photon session
-allocation TODO in `matchmaking/matcher.ts`.
+verification (`economy/receiptVerification.ts`).
 
 ## 2. Web client — `web/`
 
