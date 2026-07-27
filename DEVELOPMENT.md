@@ -38,7 +38,7 @@ Quality gates:
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest — 79 unit tests (deps mocked)
+npm test                 # vitest — 98 unit tests (deps mocked)
 npm run build            # tsc -> dist/
 npm run test:integration # 9 tests against REAL Postgres + Redis
 ```
@@ -66,7 +66,7 @@ Notable endpoints:
 | Player        | `GET /players/me` · `GET /players/me/matches` · `GET /profile/:playerId` | player / public |
 | Sessions      | `GET /matches/session/:id`                                    | player (participant) |
 | Matchmaking   | `POST /matchmaking/queue,cancel` · `GET /matchmaking/status`   | player          |
-| Economy       | `GET /economy/wallet` · `POST /economy/purchase/validate`      | player          |
+| Economy       | `GET /economy/products` · `GET /economy/wallet` · `POST /economy/purchase/validate` | public / player |
 | Leaderboard   | `GET /leaderboard/:seasonId`                                   | public          |
 | Match results | `POST /matches/:id/complete`                                   | **server** secret |
 | Analytics     | `POST /analytics/event`                                        | public          |
@@ -74,6 +74,15 @@ Notable endpoints:
 Two auth boundaries: **player** JWTs (`Authorization: Bearer <accessToken>`,
 via `requireAuth`) and a **server-to-server** shared secret (`MATCH_SERVER_SECRET`,
 via `requireMatchServer`) for the trusted game server reporting match results.
+
+**In-app purchases** are fully verified server-side
+(`economy/receiptVerification.ts`): Apple (`verifyReceipt` with prod→sandbox
+fallback), Google Play (Play Developer API, with a service-account OAuth token
+minted via `jose` in `economy/googleAuth.ts`), plus a `IAP_MODE=dev` provider
+that accepts `dev:<productId>` receipts so the whole purchase→grant flow runs
+locally without store credentials. Gems granted come from the server-side
+catalog (`economy/products.ts`), keyed by the *verified* productId — never a
+client-supplied amount.
 
 Matchmaking now allocates a **real game session** on a match: `matcher.ts`
 reads each queued player's deck and writes a session record to Redis via
@@ -84,8 +93,8 @@ it back through `GET /matches/session/:id` (participant-scoped). Set
 the default `local` dedicated-session model — the allocation contract is
 identical across providers.
 
-Still stubbed by design (need real credentials/services): IAP receipt
-verification (`economy/receiptVerification.ts`).
+The real Apple/Google verification paths need store credentials to exercise
+against production; `IAP_MODE=dev` covers everything else end-to-end.
 
 ## 2. Web client — `web/`
 

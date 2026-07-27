@@ -4,8 +4,13 @@ import { requireAuth } from "../../middleware/auth";
 import { prisma } from "../../lib/prisma";
 import { strictRateLimitConfig } from "../../lib/rateLimit";
 import { verifyReceipt } from "./receiptVerification";
+import { listProducts } from "./products";
 
 export async function economyRoutes(app: FastifyInstance) {
+  // Public catalog so clients can render the store from the server's source of
+  // truth rather than a hardcoded client list.
+  app.get("/economy/products", async () => listProducts());
+
   app.get("/economy/wallet", { preHandler: requireAuth }, async (req) => {
     const wallet = await prisma.wallet.findUnique({ where: { playerId: req.playerId! } });
     return wallet ?? { playerId: req.playerId, gold: 0, gems: 0 };
@@ -39,9 +44,13 @@ export async function economyRoutes(app: FastifyInstance) {
         where: { id: purchase.id },
         data: { productId: result.productId, validatedAt: new Date(), granted: true },
       }),
-      prisma.wallet.update({
+      // Upsert, not update: a player's first-ever transaction may be a purchase,
+      // before any wallet row exists. Update alone would throw on the missing
+      // row and 500 a legitimately-paid purchase.
+      prisma.wallet.upsert({
         where: { playerId: req.playerId! },
-        data: { gems: { increment: result.gemsGranted } },
+        create: { playerId: req.playerId!, gems: result.gemsGranted },
+        update: { gems: { increment: result.gemsGranted } },
       }),
     ]);
 
