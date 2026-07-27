@@ -14,6 +14,9 @@ vi.mock("../src/lib/redis", () => ({ redis: { zrange, hget, zrem, hset } }));
 const { createSession } = vi.hoisted(() => ({ createSession: vi.fn() }));
 vi.mock("../src/modules/sessions/sessionStore", () => ({ createSession }));
 
+const { publishMatchFound } = vi.hoisted(() => ({ publishMatchFound: vi.fn() }));
+vi.mock("../src/modules/matchmaking/notifier", () => ({ publishMatchFound }));
+
 import { runMatchTick } from "../src/modules/matchmaking/matcher";
 
 beforeEach(() => {
@@ -22,6 +25,7 @@ beforeEach(() => {
   zrem.mockReset().mockResolvedValue(1);
   hset.mockReset().mockResolvedValue("OK");
   createSession.mockReset();
+  publishMatchFound.mockReset().mockResolvedValue(undefined);
 });
 
 describe("runMatchTick", () => {
@@ -56,6 +60,10 @@ describe("runMatchTick", () => {
       status: "matched",
       sessionId: "sess-9",
     });
+
+    // Both players notified in real time with the allocated session id.
+    expect(publishMatchFound).toHaveBeenCalledWith({ playerId: "p1", sessionId: "sess-9" });
+    expect(publishMatchFound).toHaveBeenCalledWith({ playerId: "p2", sessionId: "sess-9" });
   });
 
   it("allocates nothing when no pair falls within the MMR window", async () => {

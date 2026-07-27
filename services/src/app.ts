@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import websocket from "@fastify/websocket";
 import { ZodError } from "zod";
 import { prisma } from "./lib/prisma";
 import { redis } from "./lib/redis";
@@ -79,6 +80,11 @@ export function buildApp(): FastifyInstance {
     }
     return reply.code(503).send({ status: "not_ready", checks });
   });
+
+  // WebSocket support for the real-time matchmaking subscribe route. Registered
+  // before the route modules so the `{ websocket: true }` route option is
+  // recognised when matchmakingRoutes is added below.
+  app.register(websocket);
 
   app.register(authRoutes);
   app.register(profileRoutes);

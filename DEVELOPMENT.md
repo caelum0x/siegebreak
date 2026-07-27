@@ -38,7 +38,7 @@ Quality gates:
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest — 98 unit tests (deps mocked)
+npm test                 # vitest — 108 unit tests (deps mocked)
 npm run build            # tsc -> dist/
 npm run test:integration # 9 tests against REAL Postgres + Redis
 ```
@@ -65,7 +65,7 @@ Notable endpoints:
 | Cards & decks | `GET /cards` · `GET,POST /players/me/decks`                    | player (decks)  |
 | Player        | `GET /players/me` · `GET /players/me/matches` · `GET /profile/:playerId` | player / public |
 | Sessions      | `GET /matches/session/:id`                                    | player (participant) |
-| Matchmaking   | `POST /matchmaking/queue,cancel` · `GET /matchmaking/status`   | player          |
+| Matchmaking   | `POST /matchmaking/queue,cancel` · `GET /matchmaking/status` · `WS /matchmaking/subscribe` | player          |
 | Economy       | `GET /economy/products` · `GET /economy/wallet` · `POST /economy/purchase/validate` | public / player |
 | Leaderboard   | `GET /leaderboard/:seasonId`                                   | public          |
 | Match results | `POST /matches/:id/complete`                                   | **server** secret |
@@ -93,6 +93,14 @@ it back through `GET /matches/session/:id` (participant-scoped). Set
 the default `local` dedicated-session model — the allocation contract is
 identical across providers.
 
+Match results are pushed in **real time**: on a match the matcher publishes to
+a Redis channel (`modules/matchmaking/notifier.ts`); each API instance runs a
+subscriber that forwards the event to its locally-connected sockets, so the
+push is correct across multiple instances. Clients subscribe over
+`WS /matchmaking/subscribe?token=<accessToken>` (the token is a query param
+because a browser can't set an Authorization header on a WS handshake); the web
+client uses the socket as an accelerator and keeps the ~1s poll as a backstop.
+
 The real Apple/Google verification paths need store credentials to exercise
 against production; `IAP_MODE=dev` covers everything else end-to-end.
 
@@ -105,7 +113,7 @@ matchmaking queue, leaderboard, match history). See [`web/README.md`](./web/READ
 cd web
 npm install
 npm run dev            # http://localhost:5173  (VITE_API_URL defaults to :8080)
-npm test               # vitest — 17 tests
+npm test               # vitest — 21 tests
 npm run build
 ```
 
@@ -127,7 +135,8 @@ localhost:8080` works in dev. Pin origins with `CORS_ORIGINS` in `services/.env`
 
 ## Suggested next steps
 
-- Backend: implement IAP receipt verification; wire Photon session allocation;
-  add integration tests against a Dockerized Postgres/Redis in CI.
-- Web: real match view once a session is allocated; card art.
-- Game: reconcile `Assets/` (MVP) and `client/` (Siegebreak) into one client.
+- Backend: single-leader matcher (Redis lock) before running >1 instance;
+  integration coverage for the WS subscribe path and session allocation.
+- Web: card art; surface the economy store (`GET /economy/products`).
+- Game: reconcile `Assets/` (MVP) and `client/` (Siegebreak) into one client,
+  and wire it to `POST /matches/:id/complete` + `GET /matches/session/:id`.

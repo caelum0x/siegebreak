@@ -1,5 +1,6 @@
 import { redis } from "../../lib/redis";
 import { createSession } from "../sessions/sessionStore";
+import { publishMatchFound } from "./notifier";
 
 const QUEUE_KEY = "mm:queue"; // sorted set: score = MMR, member = playerId
 const TICKET_PREFIX = "mm:ticket:"; // hash per player: deckId, status, sessionId
@@ -67,6 +68,12 @@ export async function runMatchTick() {
   for (const [a, b] of computePairings(players, MMR_MATCH_WINDOW)) {
     const session = await allocateSession([a.id, b.id]);
     await Promise.all([markMatched(a.id, session.id), markMatched(b.id, session.id)]);
+    // Push the result to any subscribed sockets so a queued client learns it's
+    // matched instantly instead of waiting for its next status poll.
+    await Promise.all([
+      publishMatchFound({ playerId: a.id, sessionId: session.id }),
+      publishMatchFound({ playerId: b.id, sessionId: session.id }),
+    ]);
   }
 }
 

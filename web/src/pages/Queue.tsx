@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cancelMatch, getDecks, getMatchStatus, queueMatch } from "../api/client";
+import { openMatchSocket } from "../api/matchSocket";
 import type { Deck, MatchTicket } from "../types";
 import { MatchFound } from "./MatchFound";
 
@@ -38,7 +39,11 @@ export function Queue() {
     }
   };
 
-  // Poll match status once queued; stop on match.
+  // Once queued, learn about a match two ways: a real-time WebSocket push
+  // (instant) and a ~1s status poll (the reliable backstop, and the only path
+  // in environments without WebSocket). A socket push just triggers an
+  // immediate status read, so the state transition has a single source of
+  // truth (the ticket) regardless of which path fired first.
   useEffect(() => {
     if (state !== "queued") return;
     const poll = async (): Promise<void> => {
@@ -55,7 +60,13 @@ export function Queue() {
     };
     void poll();
     timerRef.current = setInterval(() => void poll(), POLL_INTERVAL_MS);
-    return stopPolling;
+
+    const closeSocket = openMatchSocket({ onMatched: () => void poll() });
+
+    return () => {
+      stopPolling();
+      closeSocket();
+    };
   }, [state]);
 
   useEffect(() => stopPolling, []);
