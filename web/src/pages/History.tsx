@@ -76,6 +76,11 @@ export function History() {
           <span className="muted">{me.xp} XP</span>
           <span className="muted">Rating {me.rating}</span>
           <span className="muted">
+            {me.record.wins}W · {me.record.losses}L · {me.record.draws}D
+            {me.record.played > 0 &&
+              ` (${Math.round(me.record.winRate * 100)}% WR)`}
+          </span>
+          <span className="muted">
             {me.wallet.gold} gold · {me.wallet.gems} gems
           </span>
         </section>

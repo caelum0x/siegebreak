@@ -19,6 +19,7 @@ const ME: Me = {
   xp: 2400,
   rating: 1120,
   wallet: { gold: 42, gems: 7 },
+  record: { wins: 3, losses: 1, draws: 0, played: 4, winRate: 0.75 },
 };
 
 const WIN: MatchHistoryEntry = {
@@ -44,9 +45,10 @@ describe("History page", () => {
 
     render(<History />);
 
-    // Progression header.
+    // Progression header, including the derived win/loss record.
     expect(await screen.findByText("Ada")).toBeInTheDocument();
     expect(screen.getByText(/Rating 1120/)).toBeInTheDocument();
+    expect(screen.getByText(/3W · 1L · 0D \(75% WR\)/)).toBeInTheDocument();
 
     // Match row: result, opponent, and a signed trophy delta.
     expect(screen.getByText("Win")).toBeInTheDocument();

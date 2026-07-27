@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth";
 import { prisma } from "../../lib/prisma";
+import { summarizeRecord } from "../../lib/stats";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
@@ -39,12 +40,25 @@ export async function playerRoutes(app: FastifyInstance) {
       select: { gold: true, gems: true },
     });
 
+    // Aggregate the player's win/loss/draw record from their participant rows.
+    // One grouped query rather than three counts, then collapsed by the pure
+    // stats helper so the win-rate rule stays testable in isolation.
+    const grouped = await prisma.matchParticipant.groupBy({
+      by: ["result"],
+      where: { playerId: req.playerId! },
+      _count: { _all: true },
+    });
+    const record = summarizeRecord(
+      grouped.map((g) => ({ result: g.result, count: g._count._all }))
+    );
+
     // Construct the wallet shape explicitly rather than spreading the row, so
     // the response contract is guaranteed { gold, gems } regardless of what
     // extra columns the query returns.
     return {
       ...player,
       wallet: { gold: wallet?.gold ?? 0, gems: wallet?.gems ?? 0 },
+      record,
     };
   });
 

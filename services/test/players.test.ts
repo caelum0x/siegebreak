@@ -7,7 +7,7 @@ import type { FastifyInstance } from "fastify";
 const { player, wallet, matchParticipant } = vi.hoisted(() => ({
   player: { findUnique: vi.fn() },
   wallet: { findUnique: vi.fn() },
-  matchParticipant: { findMany: vi.fn() },
+  matchParticipant: { findMany: vi.fn(), groupBy: vi.fn() },
 }));
 vi.mock("../src/lib/prisma", () => ({
   prisma: { player, wallet, matchParticipant },
@@ -32,6 +32,9 @@ beforeEach(() => {
   player.findUnique.mockReset();
   wallet.findUnique.mockReset();
   matchParticipant.findMany.mockReset();
+  // Default to an empty record so the /players/me tests that don't care about
+  // the record don't have to stub it; the record-specific test overrides this.
+  matchParticipant.groupBy.mockReset().mockResolvedValue([]);
 });
 
 describe("GET /players/me", () => {
@@ -68,6 +71,7 @@ describe("GET /players/me", () => {
       xp: 2400,
       rating: 1120,
       wallet: { gold: 42, gems: 7 },
+      record: { wins: 0, losses: 0, draws: 0, played: 0, winRate: 0 },
     });
     // Scoped to the authed player, never a client-supplied id.
     expect(player.findUnique).toHaveBeenCalledWith(
@@ -89,6 +93,36 @@ describe("GET /players/me", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().wallet).toEqual({ gold: 0, gems: 0 });
+  });
+
+  it("aggregates the win/loss/draw record from grouped participant rows", async () => {
+    player.findUnique.mockResolvedValue({
+      id: "me",
+      displayName: "Ada",
+      level: 3,
+      xp: 2400,
+      rating: 1120,
+    });
+    wallet.findUnique.mockResolvedValue({ gold: 1, gems: 0 });
+    matchParticipant.groupBy.mockResolvedValue([
+      { result: "win", _count: { _all: 3 } },
+      { result: "loss", _count: { _all: 1 } },
+    ]);
+
+    const res = await app.inject({ method: "GET", url: "/players/me", headers: auth });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().record).toEqual({
+      wins: 3,
+      losses: 1,
+      draws: 0,
+      played: 4,
+      winRate: 0.75,
+    });
+    // Grouped over the authed player's rows only.
+    expect(matchParticipant.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ by: ["result"], where: { playerId: "me" } })
+    );
   });
 });
 

@@ -46,7 +46,17 @@ export interface LeaderboardEntry {
   rank: number;
 }
 
-/** Authenticated player's own progression, joined with the wallet. */
+/** Aggregate win/loss record derived from a player's match participation. */
+export interface PlayerRecord {
+  wins: number;
+  losses: number;
+  draws: number;
+  played: number;
+  /** Wins / played as a fraction in [0, 1]; 0 when unplayed. */
+  winRate: number;
+}
+
+/** Authenticated player's own progression, joined with the wallet + record. */
 export interface Me {
   id: string;
   displayName: string;
@@ -54,6 +64,7 @@ export interface Me {
   xp: number;
   rating: number;
   wallet: { gold: number; gems: number };
+  record: PlayerRecord;
 }
 
 export type MatchResult = "win" | "loss" | "draw";
