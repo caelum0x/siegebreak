@@ -442,3 +442,31 @@ code {
   gap: 12px;
   align-items: flex-end;
 }
+
+/* Match history */
+.history__profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.history__name {
+  font-weight: 600;
+}
+.result {
+  font-weight: 600;
+}
+.result--win {
+  color: var(--ok);
+}
+.result--loss {
+  color: var(--danger);
+}
+.result--draw {
+  color: var(--muted);
+}

@@ -38,7 +38,7 @@ Quality gates:
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest — 52 unit tests (deps mocked)
+npm test                 # vitest — 60 unit tests (deps mocked)
 npm run build            # tsc -> dist/
 npm run test:integration # 9 tests against REAL Postgres + Redis
 ```
@@ -63,6 +63,7 @@ Notable endpoints:
 | ------------- | -------------------------------------------------------------- | --------------- |
 | Auth          | `POST /auth/guest` · `/auth/apple` · `/auth/google` · `/auth/refresh` · `/auth/link` | mixed / player  |
 | Cards & decks | `GET /cards` · `GET,POST /players/me/decks`                    | player (decks)  |
+| Player        | `GET /players/me` · `GET /players/me/matches` · `GET /profile/:playerId` | player / public |
 | Matchmaking   | `POST /matchmaking/queue,cancel` · `GET /matchmaking/status`   | player          |
 | Economy       | `GET /economy/wallet` · `POST /economy/purchase/validate`      | player          |
 | Leaderboard   | `GET /leaderboard/:seasonId`                                   | public          |
@@ -80,13 +81,13 @@ allocation TODO in `matchmaking/matcher.ts`.
 ## 2. Web client — `web/`
 
 Vite + React + TypeScript companion client (guest login, deck builder,
-matchmaking queue, leaderboard). See [`web/README.md`](./web/README.md).
+matchmaking queue, leaderboard, match history). See [`web/README.md`](./web/README.md).
 
 ```bash
 cd web
 npm install
 npm run dev            # http://localhost:5173  (VITE_API_URL defaults to :8080)
-npm test               # vitest — 11 tests
+npm test               # vitest — 17 tests
 npm run build
 ```
 

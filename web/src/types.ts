@@ -46,6 +46,36 @@ export interface LeaderboardEntry {
   rank: number;
 }
 
+/** Authenticated player's own progression, joined with the wallet. */
+export interface Me {
+  id: string;
+  displayName: string;
+  level: number;
+  xp: number;
+  rating: number;
+  wallet: { gold: number; gems: number };
+}
+
+export type MatchResult = "win" | "loss" | "draw";
+
+export interface MatchOpponent {
+  playerId: string;
+  displayName: string;
+  result: MatchResult;
+}
+
+/** One row of the authed player's match history (newest first from the API). */
+export interface MatchHistoryEntry {
+  matchId: string;
+  mode: string;
+  region: string;
+  endedAt: string | null;
+  result: MatchResult;
+  trophiesDelta: number;
+  deckId: string;
+  opponents: MatchOpponent[];
+}
+
 export interface StatusResponse {
   status: string;
 }

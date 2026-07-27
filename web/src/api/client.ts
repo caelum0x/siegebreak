@@ -9,7 +9,9 @@ import type {
   CreateDeckInput,
   Deck,
   LeaderboardEntry,
+  MatchHistoryEntry,
   MatchTicket,
+  Me,
   StatusResponse,
   Wallet,
 } from "../types";
@@ -178,6 +180,15 @@ export function cancelMatch(): Promise<StatusResponse> {
 
 export function getLeaderboard(seasonId: string): Promise<LeaderboardEntry[]> {
   return request<LeaderboardEntry[]>(`/leaderboard/${encodeURIComponent(seasonId)}`);
+}
+
+export function getMe(): Promise<Me> {
+  return request<Me>("/players/me", { auth: true });
+}
+
+export function getMyMatches(limit?: number): Promise<MatchHistoryEntry[]> {
+  const query = limit ? `?limit=${encodeURIComponent(limit)}` : "";
+  return request<MatchHistoryEntry[]>(`/players/me/matches${query}`, { auth: true });
 }
 
 // Best-effort analytics ingest — never throws, so callers can fire-and-forget.

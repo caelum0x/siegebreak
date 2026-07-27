@@ -26,6 +26,9 @@ export function NavBar() {
         <NavLink to="/leaderboard" className="nav__link">
           Leaderboard
         </NavLink>
+        <NavLink to="/history" className="nav__link">
+          History
+        </NavLink>
       </div>
       <div className="nav__right">
         <WalletBadge />

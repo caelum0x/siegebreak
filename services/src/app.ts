@@ -7,6 +7,7 @@ import { redis } from "./lib/redis";
 import { globalRateLimit, rateLimitErrorResponse } from "./lib/rateLimit";
 import { authRoutes } from "./modules/auth";
 import { profileRoutes } from "./modules/profile";
+import { playerRoutes } from "./modules/players";
 import { cardsRoutes } from "./modules/cards";
 import { matchmakingRoutes } from "./modules/matchmaking";
 import { economyRoutes } from "./modules/economy";
@@ -80,6 +81,7 @@ export function buildApp(): FastifyInstance {
 
   app.register(authRoutes);
   app.register(profileRoutes);
+  app.register(playerRoutes);
   app.register(cardsRoutes);
   app.register(matchmakingRoutes);
   app.register(economyRoutes);

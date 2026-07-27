@@ -5,6 +5,7 @@ import { Login } from "./pages/Login";
 import { Collection } from "./pages/Collection";
 import { Queue } from "./pages/Queue";
 import { Leaderboard } from "./pages/Leaderboard";
+import { History } from "./pages/History";
 
 export function App() {
   return (
@@ -33,6 +34,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Leaderboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/history"
+          element={
+            <ProtectedRoute>
+              <History />
             </ProtectedRoute>
           }
         />

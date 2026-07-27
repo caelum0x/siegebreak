@@ -7,7 +7,7 @@ export async function profileRoutes(app: FastifyInstance) {
 
     const player = await prisma.player.findUnique({
       where: { id: playerId },
-      select: { id: true, displayName: true, level: true, xp: true },
+      select: { id: true, displayName: true, level: true, xp: true, rating: true },
     });
 
     if (!player) return reply.code(404).send({ error: "not_found" });
