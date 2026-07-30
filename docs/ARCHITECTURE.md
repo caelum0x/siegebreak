@@ -36,14 +36,14 @@ Two very different problems, two very different tools: match gameplay needs low-
 
 - **Stack:** Node.js + TypeScript, Fastify, Prisma ORM.
 - **Shape:** modular monolith at launch, not microservices. A small team ships faster operating one deployable with clean internal module boundaries than it does operating seven services. Split out only when a specific module's load shape actually diverges from the rest — matchmaking (bursty, latency-sensitive) and analytics-ingest (high volume, tolerant of delay) are the two most likely first candidates.
-- **Modules:** `auth`, `profile`, `cards`, `matchmaking`, `economy`, `leaderboard`, `analytics`.
+- **Modules:** `auth`, `profile`, `players`, `cards`, `matchmaking`, `sessions`, `economy`, `leaderboard`, `matches`, `analytics`.
 - **Database:** Postgres via **Neon** — serverless, branch-per-PR, which fits a workflow of testing migrations against a real branch before merging rather than against a shared dev DB.
 - **Cache/queue:** Redis — matchmaking queue, session cache, leaderboard sorted sets.
 - **Storage:** S3-compatible bucket for match telemetry now, replay data later.
 
 ## 5. Buy vs. build
 
-- **IAP validation:** Apple App Store Server API + Google Play Developer API, server-side only. Never grant currency off a client-reported purchase.
+- **IAP validation:** Apple App Store Server API + Google Play Developer API, server-side only. Never grant currency off a client-reported purchase. *(Implemented — see §10.)*
 - **Remote config / live-ops:** use a managed tool (e.g. Firebase Remote Config) at launch instead of building one. This is a solved problem; building it pre-launch is time spent not shipping the game.
 - **Analytics:** PostHog or Amplitude at launch. Revisit a custom pipeline (ClickHouse etc.) only once volume actually justifies the ops cost.
 - **Auth:** Sign in with Apple / Google + device-bound guest accounts (standard F2P pattern), JWT access + refresh tokens.
@@ -85,3 +85,15 @@ leaderboard_seasons(id, starts_at, ends_at)
 - Managed remote-config and analytics tools, not in-house ones.
 
 None of this is permanent — it's the set of things worth deferring until real usage tells you they're actually the bottleneck, not before.
+
+## 10. Implementation status (v0.2)
+
+What's actually built and tested today (see [`DEVELOPMENT.md`](./DEVELOPMENT.md) for how to run each and the test counts):
+
+- **Backend (`services/`) — functional.** All modules above are implemented on Fastify + Prisma + Redis with a mocked unit suite plus an integration suite against real Postgres/Redis. Notable:
+  - *Matchmaking → session allocation:* a match writes a persisted Redis session record (`sessions` module) carrying participants + a `connection {provider, roomName}` block; clients read it back via participant-scoped `GET /matches/session/:id`. `SESSION_PROVIDER` swaps the `local` dedicated-session model for `photon` without changing the contract.
+  - *Real-time push:* the matcher publishes match-found events on a Redis channel; each instance's subscriber forwards to its connected sockets over `WS /matchmaking/subscribe`. Correct across >1 instance.
+  - *IAP:* Apple (`verifyReceipt`, prod→sandbox) + Google Play (Play Developer API with a service-account OAuth token) verification, plus an `IAP_MODE=dev` provider for local end-to-end runs. Gems come from a server-side catalog keyed by the *verified* productId.
+  - *Progression:* Elo rating + XP/gold on match completion (server-secret guarded), aggregated win/loss record and match history on `GET /players/me` + `/players/me/matches`.
+- **Web client (`web/`) — functional.** Guest login, deck builder, matchmaking (WS-accelerated with poll fallback), match-found with the real allocated session, leaderboard, and match history.
+- **Unity client (`client/`) — SDK wired.** A `Services/` layer (`BackendGateway` facade over `Auth/Matchmaking/Session/Player/Economy` clients + a `MatchSubscription` WS) talks to the real backend over UnityWebRequest with bearer + refresh. The one remaining integration point is the Photon `NetworkRunner.StartGame` call inside `Networking/NetworkBootstrap`, which now receives a real allocated room.
