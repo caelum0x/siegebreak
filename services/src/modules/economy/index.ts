@@ -21,6 +21,24 @@ export async function economyRoutes(app: FastifyInstance) {
       .object({ receipt: z.string(), platform: z.enum(["ios", "android"]) })
       .parse(req.body);
 
+    // Idempotency: the exact same receipt can arrive more than once (a client
+    // retry after a dropped response, or a deliberate replay) and the store's
+    // verifyReceipt endpoints happily re-validate an already-used receipt —
+    // they don't report "already redeemed". Without this guard, resubmitting
+    // one valid receipt would grant gems again every time, same bug class the
+    // match-completion route already guards against via its `existing` check.
+    const alreadyGranted = await prisma.purchase.findFirst({
+      where: { receipt: body.receipt, granted: true },
+    });
+    if (alreadyGranted) {
+      return reply.code(200).send({
+        status: "granted",
+        productId: alreadyGranted.productId,
+        gemsGranted: 0,
+        duplicate: true,
+      });
+    }
+
     // Record the attempt before verifying — gives you an audit trail even
     // for receipts that fail validation (useful for fraud investigation).
     const purchase = await prisma.purchase.create({

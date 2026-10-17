@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 // untouched by the economy routes but app.ts pulls it in transitively, so it's
 // left to the vitest env's lazyConnect URL.
 const { purchase, wallet, $transaction } = vi.hoisted(() => ({
-  purchase: { create: vi.fn(), update: vi.fn() },
+  purchase: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
   wallet: { findUnique: vi.fn(), upsert: vi.fn() },
   $transaction: vi.fn(),
 }));
@@ -30,6 +30,7 @@ afterAll(async () => {
 beforeEach(() => {
   purchase.create.mockReset().mockResolvedValue({ id: "purchase-1" });
   purchase.update.mockReset();
+  purchase.findFirst.mockReset().mockResolvedValue(null);
   wallet.findUnique.mockReset();
   wallet.upsert.mockReset();
   $transaction.mockReset().mockResolvedValue([]);
@@ -73,6 +74,33 @@ describe("POST /economy/purchase/validate", () => {
       create: { playerId: "buyer", gems: 1200 },
       update: { gems: { increment: 1200 } },
     });
+  });
+
+  it("does not re-grant gems when the same already-granted receipt is resubmitted", async () => {
+    purchase.findFirst.mockResolvedValue({
+      id: "purchase-1",
+      productId: "gems_large",
+      granted: true,
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/economy/purchase/validate",
+      headers: auth,
+      payload: { platform: "ios", receipt: "dev:gems_large" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      status: "granted",
+      productId: "gems_large",
+      gemsGranted: 0,
+      duplicate: true,
+    });
+    // No new audit row, no verification, and critically: no second grant.
+    expect(purchase.create).not.toHaveBeenCalled();
+    expect($transaction).not.toHaveBeenCalled();
+    expect(wallet.upsert).not.toHaveBeenCalled();
   });
 
   it("returns 402 for a receipt that fails verification and grants nothing", async () => {
