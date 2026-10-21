@@ -138,6 +138,34 @@ describe("matchmaking end-to-end (real Redis + matcher tick)", () => {
     expect(Number(score)).toBe(1337);
   });
 
+  it("two concurrent ticks (simulating two API instances) pair a queued pair exactly once", async () => {
+    // Regression guard for the race the single-leader lock (lib/lock.ts)
+    // exists to close: without it, two instances racing the same 1s tick
+    // could both read the queue before either removed the matched players,
+    // allocating two separate sessions for the same pair and leaving their
+    // tickets pointing at different sessionIds.
+    const a = await guestLogin("device-mm-race-a");
+    const b = await guestLogin("device-mm-race-b");
+
+    await app.inject({ method: "POST", url: "/matchmaking/queue", headers: bearer(a.accessToken), payload: { deckId: "deck-a" } });
+    await app.inject({ method: "POST", url: "/matchmaking/queue", headers: bearer(b.accessToken), payload: { deckId: "deck-b" } });
+
+    await Promise.all([runMatchTick(), runMatchTick(), runMatchTick()]);
+
+    const statusA = (await app.inject({ method: "GET", url: "/matchmaking/status", headers: bearer(a.accessToken) })).json();
+    const statusB = (await app.inject({ method: "GET", url: "/matchmaking/status", headers: bearer(b.accessToken) })).json();
+
+    expect(statusA.status).toBe("matched");
+    expect(statusB.status).toBe("matched");
+    // Both landed in the exact same session — not two separately-allocated ones.
+    expect(statusA.sessionId).toBe(statusB.sessionId);
+
+    // Exactly one session key exists in Redis for this pair (no duplicate
+    // allocation from a second instance racing the same players).
+    const sessionKeys = await redis.keys("session:*");
+    expect(sessionKeys).toHaveLength(1);
+  });
+
   it("cancel removes the ticket so a later tick does not match", async () => {
     const a = await guestLogin("device-mm-a2");
     await app.inject({ method: "POST", url: "/matchmaking/queue", headers: bearer(a.accessToken), payload: { deckId: "deck-a" } });

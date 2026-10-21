@@ -1,4 +1,5 @@
 import { redis } from "../../lib/redis";
+import { acquireLock } from "../../lib/lock";
 import { createSession } from "../sessions/sessionStore";
 import { publishMatchFound } from "./notifier";
 
@@ -8,6 +9,13 @@ const TICKET_PREFIX = "mm:ticket:"; // hash per player: deckId, status, sessionI
 const MMR_MATCH_WINDOW = 150; // widen this over wait time once real MMR exists
 const MATCH_MODE = "1v1"; // only mode for now; carried onto the allocated session
 const MATCH_REGION = process.env.MATCH_REGION || "eu";
+
+// Single-leader guard for the tick (see runMatchTick below). TTL is well
+// above the 1s tick interval so a slow-but-alive tick keeps its lock across
+// a couple of scheduler ticks, but still short enough that a crashed holder
+// doesn't wedge matchmaking for long before another instance picks it back up.
+const MATCH_TICK_LOCK_KEY = "mm:lock:tick";
+const MATCH_TICK_LOCK_TTL_MS = 5000;
 
 export interface QueuedPlayer {
   id: string;
@@ -52,12 +60,23 @@ export function computePairings(
   return pairs;
 }
 
-// Naive O(n log n) pass over the whole queue on a 1s interval — fine for
-// launch-scale concurrent queue sizes. If this process ever runs as more
-// than one instance, this needs to move to a single-leader worker (e.g. a
-// Redis lock or a dedicated matchmaking process) so two instances don't
-// both try to match the same players.
+// O(n log n) pass over the whole queue on a 1s interval — fine for
+// launch-scale concurrent queue sizes. Guarded by a single-leader Redis lock
+// (lib/lock.ts) so running more than one API instance is safe: only the
+// instance that wins the lock reads/pairs/mutates the queue for a given tick,
+// every other instance's concurrent call sees the lock held and returns
+// immediately instead of racing the same players into two sessions.
 export async function runMatchTick() {
+  const lock = await acquireLock(MATCH_TICK_LOCK_KEY, MATCH_TICK_LOCK_TTL_MS);
+  if (!lock) return; // another instance already owns this tick; sit this cycle out
+  try {
+    await runMatchTickExclusive();
+  } finally {
+    await lock.release();
+  }
+}
+
+async function runMatchTickExclusive() {
   const pool = await redis.zrange(QUEUE_KEY, 0, -1, "WITHSCORES");
   const players: QueuedPlayer[] = [];
   for (let i = 0; i < pool.length; i += 2) {

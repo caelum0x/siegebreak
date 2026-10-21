@@ -9,9 +9,10 @@ const app = buildApp();
 // publish side runs from the matcher tick below.
 startMatchNotifier((err) => app.log.error(err, "match notifier error"));
 
-// Naive in-process matcher tick — fine for one API instance. Move this to
-// a single-leader worker before running more than one instance, so two
-// processes don't both try to match the same queued players.
+// In-process matcher tick, safe to run from every API instance: runMatchTick
+// itself acquires a single-leader Redis lock (lib/lock.ts) before touching the
+// queue, so only one instance's tick actually pairs players at a time even
+// when this process is scaled horizontally.
 setInterval(() => {
   runMatchTick().catch((err) => app.log.error(err));
 }, 1000);

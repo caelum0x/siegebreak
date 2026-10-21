@@ -3,13 +3,18 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // The matcher tick touches Redis (queue read, ticket read/write) and the
 // session store (allocation). Mock both so the pairing → allocate → mark flow
 // is exercised without live infrastructure.
-const { zrange, hget, zrem, hset } = vi.hoisted(() => ({
+const { zrange, hget, zrem, hset, set, eval: redisEval } = vi.hoisted(() => ({
   zrange: vi.fn(),
   hget: vi.fn(),
   zrem: vi.fn(),
   hset: vi.fn(),
+  // Lock acquire/release (lib/lock.ts) go through the same redis client.
+  set: vi.fn(),
+  eval: vi.fn(),
 }));
-vi.mock("../src/lib/redis", () => ({ redis: { zrange, hget, zrem, hset } }));
+vi.mock("../src/lib/redis", () => ({
+  redis: { zrange, hget, zrem, hset, set, eval: redisEval },
+}));
 
 const { createSession } = vi.hoisted(() => ({ createSession: vi.fn() }));
 vi.mock("../src/modules/sessions/sessionStore", () => ({ createSession }));
@@ -26,6 +31,10 @@ beforeEach(() => {
   hset.mockReset().mockResolvedValue("OK");
   createSession.mockReset();
   publishMatchFound.mockReset().mockResolvedValue(undefined);
+  // Default: this "instance" always wins the tick lock and its release always
+  // succeeds, so the lock is transparent to the existing pairing assertions.
+  set.mockReset().mockResolvedValue("OK");
+  redisEval.mockReset().mockResolvedValue(1);
 });
 
 describe("runMatchTick", () => {
@@ -77,5 +86,47 @@ describe("runMatchTick", () => {
     zrange.mockResolvedValue([]);
     await runMatchTick();
     expect(createSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("runMatchTick single-leader lock", () => {
+  it("skips the tick entirely when another instance already holds the lock", async () => {
+    // SET ... NX returning null (not "OK") means another instance's lock is
+    // still live — this is the race two concurrent instances would otherwise
+    // hit: both reading/pairing/mutating the same queue for the same tick.
+    set.mockResolvedValueOnce(null);
+    zrange.mockResolvedValue(["p1", "1000", "p2", "1100"]);
+
+    await runMatchTick();
+
+    expect(zrange).not.toHaveBeenCalled();
+    expect(createSession).not.toHaveBeenCalled();
+    expect(redisEval).not.toHaveBeenCalled(); // nothing to release
+  });
+
+  it("acquires the lock before pairing and releases it afterward", async () => {
+    zrange.mockResolvedValue(["p1", "1000", "p2", "1100"]);
+    hget.mockImplementation((k: string) => Promise.resolve(k === "mm:ticket:p1" ? "d1" : "d2"));
+    createSession.mockResolvedValue({ id: "sess-lock" });
+
+    await runMatchTick();
+
+    expect(set).toHaveBeenCalledWith("mm:lock:tick", expect.any(String), "PX", expect.any(Number), "NX");
+    expect(createSession).toHaveBeenCalledTimes(1);
+    // Release runs after pairing completes, compare-and-delete via the Lua script.
+    expect(redisEval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call(\"get\", KEYS[1])"),
+      1,
+      "mm:lock:tick",
+      expect.any(String)
+    );
+  });
+
+  it("still releases the lock when pairing throws", async () => {
+    zrange.mockRejectedValue(new Error("redis down"));
+
+    await expect(runMatchTick()).rejects.toThrow("redis down");
+
+    expect(redisEval).toHaveBeenCalledTimes(1); // release still ran via finally
   });
 });
