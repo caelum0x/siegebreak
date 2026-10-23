@@ -31,7 +31,7 @@ namespace FPClash
         {
             new CharacterConfig
             {
-                id = "pekka", displayName = "P.E.K.K.A",
+                id = "colossus", displayName = "Colossus",
                 maxHealth = 1400f, moveSpeed = 4.0f,
                 attackDamage = 240f, attackRange = 2.6f, attackAngle = 100f,
                 attackCooldown = 1.4f, attackWindup = 0.30f,
@@ -49,7 +49,7 @@ namespace FPClash
             },
             new CharacterConfig
             {
-                id = "valkyrie", displayName = "Valkyrie",
+                id = "stormblade", displayName = "Stormblade",
                 maxHealth = 900f, moveSpeed = 5.2f,
                 attackDamage = 110f, attackRange = 2.4f, attackAngle = 360f, // spin: hits all around
                 attackCooldown = 0.85f, attackWindup = 0.18f,

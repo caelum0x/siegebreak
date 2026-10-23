@@ -10,15 +10,16 @@ Vertical/portrait, one-handed: **virtual joystick** to move, **ATK button** to s
   between `caelum0x` and `farukeskc` (see `git log`); both should be credited
   as co-authors and a licence (e.g. MIT for the original code) chosen before
   any public release or store listing.
-- **Trademark risk:** two of the four champions in `CharacterConfig.cs` —
-  `P.E.K.K.A` (id `pekka`) and `Valkyrie` (id `valkyrie`) — reuse Supercell's
-  registered Clash Royale character names verbatim. All code, meshes, and
-  textures here are original (no Supercell assets or source were copied —
-  verified, nothing under `Assets/` references Supercell/Clash Royale), but
-  shipping these two display names as-is is a real trademark exposure, not a
-  copyright one. Rename `pekka`/`valkyrie` to original names (`Knight` and
-  `Goblin` are generic fantasy terms, not Supercell-exclusive, and are fine
-  as-is) before any public build, store page, or marketing claim.
+- **Trademark risk — resolved:** two of the four champions in
+  `CharacterConfig.cs` previously reused Supercell's registered Clash Royale
+  character names verbatim (ids `pekka`/`valkyrie`, display names
+  `P.E.K.K.A`/`Valkyrie`). All code, meshes, and textures here were always
+  original (no Supercell assets or source were ever copied), but shipping
+  those two display names as-is was a real trademark exposure. They have been
+  renamed to original names that fit this game's own theme: `pekka` →
+  `colossus` (`Colossus`) and `valkyrie` → `stormblade` (`Stormblade`).
+  `Knight` and `Goblin` are generic fantasy terms, not Supercell-exclusive,
+  and were left as-is.
 - This project is an original, independently-built game; it is not affiliated
   with, endorsed by, or associated with Supercell.
 
@@ -39,7 +40,7 @@ Character Select → Match → (die → 4s respawn as a full team of 9 bots keep
 King tower falls → Victory/Defeat → Play Again.
 
 ## Champions (roster in `CharacterConfig.cs`)
-P.E.K.K.A (tanky, huge hits), Knight (balanced), Valkyrie (360° spin), Goblin (fast, fragile).
+Colossus (tanky, huge hits), Knight (balanced), Stormblade (360° spin), Goblin (fast, fragile).
 
 ## Architecture (all under `Assets/Scripts/`, everything built in code — no prefabs)
 - **Core/** — `GameBootstrap` (entry point in the scene), `GameManager` (match/respawn/win),
