@@ -86,6 +86,15 @@ namespace Siegebreak.Core
             // trigger the client's MatchResultUI.
         }
 
+        // Guest-side reconciliation only: the guest never runs ServerTick
+        // itself (it has no towers/clock authority), so it mirrors whatever
+        // result the host's state_snapshot reports to drive its own
+        // match-result UI.
+        public void SyncResultFromServer(MatchResult result)
+        {
+            Result = result;
+        }
+
         private static TowerController FindKing(List<TowerController> towers)
         {
             foreach (var t in towers)

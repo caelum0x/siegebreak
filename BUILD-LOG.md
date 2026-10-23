@@ -3,6 +3,99 @@
 Running log of real feature/fix work on this repo, newest first. Not a plan doc —
 only things actually implemented, verified, and pushed.
 
+## 2026-10-24 — Combat loop wired to the real relay (bots → real opponent)
+
+**Gap found:** the previous round shipped a verified, real 1v1 relay transport
+(`WS /sessions/:id/relay` + `MatchRelayClient`), but nothing on the client
+consumed it for gameplay. `NetworkBootstrap.OnMatchFrame`/`OnRoleAssigned`
+had no subscriber, `CardDeploymentManager` only ever sent a frame into the
+void, and there was no code anywhere that spawned a unit from a deploy,
+ran `AutoUnitAI` against a real target, applied combat damage, or turned a
+destroyed king tower into a broadcast match result. The MVP scene's "5v5"
+build was still bots-only by construction, not just by content.
+
+**Shipped (Unity client, `client/Assets/Scripts`):**
+- `Cards/CardCatalog.cs` — a `CardData[]`-backed ScriptableObject lookup by
+  `cardId`, so the host simulator can resolve *either* player's deploy
+  (not just the local hand `DeckManager` already knows).
+- `Cards/CardData.cs` — extended with combat stats (`hp`, `dps`,
+  `attackRange`, `spawnCount`, `targets: TargetMode`) mirroring the
+  backend seed's `baseStats` shape (`services/src/db/seed.ts`).
+- `Units/UnitHealth.cs` (new) + `Core/TowerController.SyncFromSnapshot`
+  (added) — HP with host-side `ApplyDamage` and guest-side
+  `SyncFromSnapshot` reconciliation, same shape on both a troop and a
+  tower.
+- `Units/SpawnedUnit.cs` (new) — identity tag (`unitId`, owning `CardData`,
+  host/guest ownership) attached to every spawned unit on both sides.
+- `Units/AutoUnitAI.cs` — `ServerTick` now takes `deltaTime` and actually
+  fires `OnAttackTick` on a real attack-speed timer instead of a TODO
+  comment; added `Configure(range, intervalSeconds)` so the host can set
+  per-card attack stats instead of relying on prefab defaults. Removed the
+  now-redundant `targetsBuildingsOnly` field — targeting mode moved up to
+  `CardData.targets`/`TargetingUtil`, one source of truth instead of two.
+- `Core/TargetingUtil.cs` (new) — real nearest-enemy-unit-or-tower
+  selection respecting `TargetMode` (buildings-only siege units skip
+  troops entirely).
+- `Core/MatchWireFrames.cs` (new) — `deploy_input`/`state_snapshot` DTOs +
+  tolerant JsonUtility parse helpers for the host/guest frame exchange.
+- `Core/MatchHostSimulator.cs` (new) — the actual authoritative
+  simulation: validates + spends elixir on a deploy, spawns the unit(s),
+  ticks every unit's `AutoUnitAI` against `TargetingUtil`, resolves
+  unit-vs-unit/unit-vs-tower/tower-vs-unit damage, feeds
+  `MatchStateController.ServerTick`, and broadcasts a full
+  `state_snapshot` at 10Hz.
+- `Core/MatchSnapshotRenderer.cs` (new) — the guest-side counterpart:
+  spawns/moves/HP-syncs/despawns units by `unitId` from each snapshot,
+  disabling `AutoUnitAI`/`NavMeshAgent` on every spawned visual so the
+  guest never runs a second simulation against the host's.
+- `Core/MatchSimulationController.cs` (new) — the scene-level entry point
+  that ties it together: owns the host/guest branch off
+  `NetworkBootstrap.IsHost`, exposes `RequestLocalDeploy(card, position)`
+  as the one call the HUD/placement UI needs (host applies directly since
+  the relay never echoes a client's own frame back to it; guest sends over
+  the wire via the existing `CardDeploymentManager`), and routes incoming
+  `OnMatchFrame` frames to the host simulator (`deploy_input`) or the
+  guest renderer (`state_snapshot`) by type.
+- `Core/ElixirManager.SyncFromServer` / `Core/MatchStateController.SyncResultFromServer`
+  — small reconciliation setters so the guest's elixir bar and match-result
+  UI can mirror the host's authoritative values instead of drifting.
+
+**Not run through the Unity Editor** (none is installed in this sandbox —
+no `unity`/`mono`/`csc`/`dotnet` binary available, same constraint the
+previous round hit for its own client-side changes): verified by brace/paren
+balance across every new/edited file, cross-checking every changed method
+signature against every call site by hand, and matching every new type's
+field names/visibility exactly against the existing codebase's own
+conventions (JsonUtility DTOs, SerializeField wiring, event patterns). The
+backend relay this plugs into remains the real, server-verified transport
+from the previous round — nothing there changed. First real compile/play
+pass needs an actual Unity Editor, which is an owner-side environment step,
+not a code gap.
+
+**Deliberately not touched this round:** spell/hero cards aren't deployable
+through this path yet (`MatchHostSimulator.HandleDeployRequest` explicitly
+rejects non-troop/building types — spells are an instant effect, heroes are
+already on the field via `HeroController`, neither fits "spawn a prefab at a
+point"); no prefabs/scene exist in the repo to actually place `CardCatalog`
+entries into yet (this is still a scripts-only client — there's no
+`Assets/ScriptableObjects` or `.unity` scene checked in), so `hostTowers`/
+`guestTowers`/`catalog` on `MatchSimulationController` are Inspector wiring
+for whoever builds the first real scene, same as every other
+`[SerializeField]` reference in this codebase today; king-tower aggro
+unlock-after-princess-falls (a real CR rule) isn't modeled — any tower
+defends independently; no client-side elixir prediction/smoothing on the
+guest (it mirrors the host's value directly every snapshot instead of
+ticking its own copy between snapshots) — deferred as a polish pass, not a
+correctness gap. Deck duplicate-card validation and the elixir-curve cap
+flagged in the last two rounds are still outstanding — no new information
+on either this round.
+
+**Next up:** build the actual MVP `.unity` scene + `CardData`/prefab assets
+so this combat loop can be played and Editor-verified for real instead of
+reviewed by hand; elixir-curve cap + deck duplicate-card validation; chest/
+shop UI for the shard economy; Photon Fusion wiring once `PHOTON_APP_ID`
+exists.
+
 ## 2026-10-24 — Real 1v1 PvP relay transport (the documented netcode gap)
 
 **Gap found:** `HACKATHON-MOBIDICTUM-VENTURES-APPLICATION-2026-10-23.md` and

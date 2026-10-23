@@ -37,5 +37,15 @@ namespace Siegebreak.Core
             _current -= cost;
             return true;
         }
+
+        // Guest-side reconciliation only: the host is the only client that
+        // ever calls Tick/TrySpend for real; the guest mirrors whatever
+        // value the host reports in its state_snapshot so the elixir bar
+        // shows the true, authoritative count instead of drifting.
+        public void SyncFromServer(int serverValue)
+        {
+            _current = serverValue;
+            _regenTimer = 0f;
+        }
     }
 }

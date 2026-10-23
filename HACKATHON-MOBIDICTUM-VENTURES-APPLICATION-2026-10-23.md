@@ -85,8 +85,11 @@ today.
   and real Redis, not mocked. Photon Fusion (`NetworkRunner.StartGame`, server-authoritative
   hero movement + lag-compensated hit validation) is still the unwired path for the
   managed-relay/Fusion-specific netcode features — it needs a Photon account signup
-  (`PHOTON_APP_ID`) that's an owner step, not a code gap. The MVP's "5v5" build still ships
-  with bots; wiring the real relay into that scene's combat loop is the next client-side step.
+  (`PHOTON_APP_ID`) that's an owner step, not a code gap. The combat loop itself is now wired
+  end-to-end over that relay: `MatchHostSimulator` runs the real server-authoritative
+  simulation (elixir, spawn validation, unit AI/targeting, unit/tower combat, win condition)
+  on whichever client the backend names host, broadcasts `state_snapshot` frames, and the
+  other client renders them with `MatchSnapshotRenderer` — a real two-player match, not bots.
 - Nothing is deployed publicly. There is no live backend URL, no App Store/Play listing, and
   therefore zero live users or revenue today. Everything above runs and is tested locally and
   in CI-shaped test suites, not in production.

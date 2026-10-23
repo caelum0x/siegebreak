@@ -21,6 +21,8 @@ namespace Siegebreak.Core
         public TowerSlot Slot => slot;
         public int CurrentHp { get; private set; }
         public bool IsDestroyed => CurrentHp <= 0;
+        public int Dps => dps;
+        public float AttackRange => attackRange;
 
         public event Action<TowerController> OnDestroyed;
 
@@ -43,5 +45,15 @@ namespace Siegebreak.Core
 
         public bool IsInRange(Vector3 attackerPosition) =>
             Vector3.Distance(transform.position, attackerPosition) <= attackRange;
+
+        // Guest-side reconciliation only: the host already resolved combat,
+        // this just mirrors the resulting HP for rendering. Mirrors
+        // Units/UnitHealth.SyncFromSnapshot.
+        public void SyncFromSnapshot(int hp)
+        {
+            var wasDestroyed = IsDestroyed;
+            CurrentHp = Mathf.Max(0, hp);
+            if (!wasDestroyed && IsDestroyed) OnDestroyed?.Invoke(this);
+        }
     }
 }
