@@ -5,6 +5,7 @@ import { requireAuth } from "../../middleware/auth";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../lib/jwt";
 import { strictRateLimitConfig } from "../../lib/rateLimit";
 import { verifyAppleToken, verifyGoogleToken, VerifiedIdentity } from "./providers";
+import { STARTER_CARD_IDS } from "../../lib/cardProgression";
 
 const guestSchema = z.object({ deviceId: z.string().min(8) });
 const linkSchema = z.object({
@@ -28,6 +29,10 @@ export async function authRoutes(app: FastifyInstance) {
           authProvider: "guest",
           authProviderId: deviceId,
           wallet: { create: { gold: 0, gems: 0 } },
+          // Every fresh account starts owning a small curated set (incl. one
+          // hero) so there's something to see/upgrade on first login, before
+          // a single match has been played.
+          cards: { create: STARTER_CARD_IDS.map((cardId) => ({ cardId })) },
         },
       });
     }
@@ -119,6 +124,7 @@ async function upsertFromIdentity(identity: VerifiedIdentity) {
       authProvider: identity.provider,
       authProviderId: identity.providerId,
       wallet: { create: { gold: 0, gems: 0 } },
+      cards: { create: STARTER_CARD_IDS.map((cardId) => ({ cardId })) },
     },
   });
 }

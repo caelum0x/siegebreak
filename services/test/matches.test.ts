@@ -6,14 +6,19 @@ process.env.MATCH_SERVER_SECRET = SECRET;
 
 // Mock Prisma (idempotency, player rating load, transactional writes) and Redis
 // (leaderboard zincrby) so completion is exercised without live infrastructure.
-const { match, player, wallet, $transaction, zincrby } = vi.hoisted(() => ({
+const { match, player, wallet, deck, playerCard, $transaction, zincrby } = vi.hoisted(() => ({
   match: { findUnique: vi.fn(), create: vi.fn() },
   player: { findMany: vi.fn(), update: vi.fn() },
   wallet: { upsert: vi.fn() },
+  // Card-shard progression (awardCardShards): deckId in the test body doesn't
+  // resolve to a real Deck row, so the default null keeps that path a no-op,
+  // matching production behavior for an unknown/ad-hoc deck id.
+  deck: { findUnique: vi.fn() },
+  playerCard: { upsert: vi.fn() },
   $transaction: vi.fn(),
   zincrby: vi.fn(),
 }));
-vi.mock("../src/lib/prisma", () => ({ prisma: { match, player, wallet, $transaction } }));
+vi.mock("../src/lib/prisma", () => ({ prisma: { match, player, wallet, deck, playerCard, $transaction } }));
 vi.mock("../src/lib/redis", () => ({ redis: { zincrby } }));
 
 import { buildApp } from "../src/app";
@@ -51,6 +56,8 @@ beforeEach(() => {
     ]);
   player.update.mockReset();
   wallet.upsert.mockReset();
+  deck.findUnique.mockReset().mockResolvedValue(null);
+  playerCard.upsert.mockReset();
   $transaction.mockReset().mockResolvedValue([]);
   zincrby.mockReset().mockResolvedValue(1);
 });

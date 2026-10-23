@@ -3,7 +3,8 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireMatchServer } from "../../middleware/serverAuth";
 import { recordMatchResult } from "../leaderboard";
-import { computeElo, resultToScore, matchRewards, levelForXp } from "../../lib/rating";
+import { computeElo, resultToScore, matchRewards, levelForXp, MatchResult } from "../../lib/rating";
+import { shardsPerCardForResult } from "../../lib/cardProgression";
 
 const completeSchema = z.object({
   seasonId: z.string().min(1),
@@ -125,6 +126,13 @@ export async function matchRoutes(app: FastifyInstance) {
       )
     );
 
+    // Card-collection progression: the deck a participant actually fielded
+    // earns shards per distinct card, scaled by outcome. Best-effort and
+    // outside the main transaction above (same tradeoff already made for the
+    // Redis leaderboard write just above) — a missed shard grant is
+    // recoverable, but it must never block a match from being recorded.
+    await Promise.all(body.participants.map((p) => awardCardShards(p.playerId, p.deckId, p.result)));
+
     return reply.code(201).send({
       status: "recorded",
       matchId: id,
@@ -134,4 +142,28 @@ export async function matchRoutes(app: FastifyInstance) {
       })),
     });
   });
+}
+
+// Grants shards for every distinct card in the deck `playerId` fielded. The
+// match server is trusted for `result` (same as the rest of this route) but
+// `deckId` is a client-chosen opaque id at queue time, not guaranteed to
+// resolve to a saved Deck row (e.g. an ad-hoc test deck, or one deleted
+// since) — that must never 500 a real match completion, so a missing deck is
+// a silent no-op rather than an error.
+async function awardCardShards(playerId: string, deckId: string, result: MatchResult): Promise<void> {
+  const deck = await prisma.deck.findUnique({ where: { id: deckId }, select: { slots: true } });
+  if (!deck) return;
+
+  const amount = shardsPerCardForResult(result);
+  const uniqueCardIds = Array.from(new Set(deck.slots));
+
+  await Promise.all(
+    uniqueCardIds.map((cardId) =>
+      prisma.playerCard.upsert({
+        where: { playerId_cardId: { playerId, cardId } },
+        create: { playerId, cardId, shards: amount },
+        update: { shards: { increment: amount } },
+      })
+    )
+  );
 }
