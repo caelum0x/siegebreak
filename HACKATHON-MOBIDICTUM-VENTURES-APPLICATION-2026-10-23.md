@@ -27,9 +27,11 @@ click through and test.
 studio/LLC name here if you've since set one up; otherwise this is accurate as written.)
 
 **Website:** No public site or store listing yet. Use the GitHub repo as the primary link:
-`https://github.com/caelum0x/fp_clash` — a public fork of the private `farukeskc/fp_clash`
-collaboration repo (the origin itself stays private since only its owner can flip that; the
-fork's full history, including both co-authors' commits, is public and clickable).
+`https://github.com/caelum0x/siegebreak` — a public mirror of the private
+`farukeskc/fp_clash` collaboration repo (the origin itself stays private since only its
+owner has admin rights to flip that; GitHub also blocks making a *fork* of a private repo
+public, so this is a standalone repo pushed with the full history instead — same commits,
+same both-co-authors history, fully clickable).
 
 **Project description:** (paste the text below)
 
@@ -95,7 +97,7 @@ established audience and proven monetization pattern (battle pass + direct card 
 cosmetics, already scoped in the PRD).
 
 **Links:**
-- Repo (public): `https://github.com/caelum0x/fp_clash`
+- Repo (public): `https://github.com/caelum0x/siegebreak`
 - Product scope: `PRD.md` in the repo
 - Technical architecture + implementation status: `ARCHITECTURE.md` in the repo
 - Developer guide / how to run both clients and the backend locally: `DEVELOPMENT.md` in the
