@@ -77,12 +77,16 @@ today.
 
 **What's honestly not built yet (no inflation):**
 
-- The MVP's "5v5" is the player plus 9 bots — there is no live player-vs-player netcode
-  running yet. The matchmaking/session backend above is real and tested, but the realtime
-  match simulation it hands off to (Photon Fusion, server-authoritative hero movement +
-  lag-compensated hit validation) is a documented architecture decision, not shipped code —
-  the one remaining wiring point is the `NetworkRunner.StartGame` call on a real allocated
-  room.
+- Real 1v1 PvP transport is now live end-to-end: matchmaking pairs two real players, the
+  backend allocates a session and deterministically assigns one participant as the
+  server-recognized host, and both clients connect to a real WebSocket relay
+  (`WS /sessions/:id/relay`) that exchanges gameplay frames (card deploys, state snapshots)
+  for the rest of the match — verified against the actual running server, real Postgres,
+  and real Redis, not mocked. Photon Fusion (`NetworkRunner.StartGame`, server-authoritative
+  hero movement + lag-compensated hit validation) is still the unwired path for the
+  managed-relay/Fusion-specific netcode features — it needs a Photon account signup
+  (`PHOTON_APP_ID`) that's an owner step, not a code gap. The MVP's "5v5" build still ships
+  with bots; wiring the real relay into that scene's combat loop is the next client-side step.
 - Nothing is deployed publicly. There is no live backend URL, no App Store/Play listing, and
   therefore zero live users or revenue today. Everything above runs and is tested locally and
   in CI-shaped test suites, not in production.

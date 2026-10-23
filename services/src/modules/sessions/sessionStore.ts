@@ -88,3 +88,13 @@ export async function getSession(id: string): Promise<GameSession | null> {
 export function isParticipant(session: GameSession, playerId: string): boolean {
   return session.participants.some((p) => p.playerId === playerId);
 }
+
+// Deterministic authority assignment for the realtime relay (modules/sessions/
+// relay.ts): the first participant in allocation order runs the authoritative
+// simulation and broadcasts state; the other sends input only. Both sides
+// derive this the same way from the same session record, so there's no
+// handshake or election needed — and no scenario where both or neither think
+// they're host.
+export function hostPlayerId(session: GameSession): string | undefined {
+  return session.participants[0]?.playerId;
+}

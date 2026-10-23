@@ -3,6 +3,75 @@
 Running log of real feature/fix work on this repo, newest first. Not a plan doc —
 only things actually implemented, verified, and pushed.
 
+## 2026-10-24 — Real 1v1 PvP relay transport (the documented netcode gap)
+
+**Gap found:** `HACKATHON-MOBIDICTUM-VENTURES-APPLICATION-2026-10-23.md` and
+`ARCHITECTURE.md` both flagged the same honest gap — matchmaking and session
+allocation were real, but nothing carried gameplay frames between the two
+matched clients for the actual match. `NetworkBootstrap.StartTransport` was a
+comment pointing at `runner.StartGame(...)` (Photon Fusion) with no concrete
+transport behind the default `local` provider at all, and
+`CardDeploymentManager.RequestDeploy` was a bare TODO.
+
+**Why not Photon Fusion directly:** wiring `SESSION_PROVIDER=photon` for real
+needs a Photon account signup and a live `PHOTON_APP_ID` plus the Fusion SDK
+package — an owner credential/account step this agent can't do unattended.
+Rather than leave the `local` provider (the actual default, what every
+existing session allocates today) with zero transport behind it, built the
+real thing the backend already owns: a WebSocket relay.
+
+**Shipped:**
+- `services/src/modules/sessions/relay.ts` — the real-time transport behind
+  `SESSION_PROVIDER=local`. Registers connected sockets per session, forwards
+  frames between the two participants, and fans out across API instances via
+  Redis pub/sub (same shape as `modules/matchmaking/notifier.ts`).
+- `GET /sessions/:id/relay` (WS) — auth via `?token=` (same pattern as the
+  matchmaking subscribe socket), rejects non-participants the same
+  not-found-not-forbidden way the existing `GET /matches/session/:id` does,
+  sends a `welcome` frame reporting the caller's host/guest role
+  (`sessionStore.hostPlayerId` — deterministic: first participant in
+  allocation order, so both sides agree with no election), then relays
+  anything else verbatim. Frame size capped at 16KB to stop a misbehaving
+  client from flooding the Redis channel.
+- `startSessionRelay()` wired into `services/src/index.ts` boot, mirroring
+  the existing match notifier subscriber.
+- `client/Assets/Scripts/Services/MatchRelayClient.cs` — Unity-side transport
+  over `ClientWebSocket`, same off-thread-receive/main-thread-drain shape as
+  the existing `MatchSubscription`. Exposes `IsHost`, `IsConnected`,
+  `OnWelcome`/`OnFrame`/`OnError`.
+- `NetworkBootstrap` now actually starts this transport for the `local`
+  provider instead of doing nothing; `photon` cleanly no-ops with
+  `OnJoinFailed("photon_not_wired")` until the account/SDK blocker above
+  clears. Exposes `IsHost`, `IsRelayConnected`, `SendMatchFrame`, and
+  `OnMatchFrame`/`OnRoleAssigned` events for gameplay code to consume.
+- `CardDeploymentManager.RequestDeploy` now actually sends a `deploy_input`
+  frame over the live transport (still never spawns locally first — only
+  sends the request, so a rejected/undelivered deploy can't desync from
+  the host).
+
+**Verified by actually running it** (real local Postgres `siegebreak_test` +
+real local Redis, `npx tsx src/index.ts` on a real port, no mocks): scripted
+two real guest signups → real `/matchmaking/queue` → real matcher tick pairs
+them → real `WS /matchmaking/subscribe` push delivers the same `sessionId` to
+both → both connect to the real `WS /sessions/:id/relay` → server reports
+exactly one of the two as host (deterministic, verified not-equal) → a real
+`deploy_input` frame sent from the non-host arrives byte-identical on the
+host, and a `state_snapshot` frame sent back arrives identical on the guest.
+Existing suites unaffected: 115 unit + 14 integration tests (real Postgres +
+Redis) still green; `tsc --noEmit` clean. No test files added or edited.
+
+**Deliberately not touched this round:** the MVP Unity scene's actual combat
+loop still spawns bots rather than driving off `OnMatchFrame` end-to-end (the
+transport is real and verified at the message level; wiring it into the
+gameplay scene's unit-spawn/tower-damage code is a follow-up); Photon Fusion
+integration itself (blocked on the account signup above — tracked, not
+silently dropped).
+
+**Next up (not yet done):** wire the MVP scene's combat loop to consume
+`OnMatchFrame`/`OnRoleAssigned` for real (so the shipped build plays a real
+opponent instead of bots), deck duplicate-card validation, elixir-curve cap,
+chest/shop UI for the shard economy.
+
 ## 2026-10-23 — Card collection & progression economy (shards + upgrades)
 
 **Gap found:** `PlayerCard` (level/shards per owned card) existed in the Postgres
