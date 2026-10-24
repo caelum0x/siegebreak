@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 // database. Only the methods the cards routes touch are stubbed. vi.hoisted
 // lets these fns exist before vi.mock's hoisted factory references them.
 const { card, deck } = vi.hoisted(() => ({
-  card: { findUnique: vi.fn() },
+  card: { findUnique: vi.fn(), findMany: vi.fn() },
   deck: { findMany: vi.fn(), create: vi.fn() },
 }));
 vi.mock("../src/lib/prisma", () => ({ prisma: { card, deck } }));
@@ -28,6 +28,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   card.findUnique.mockReset();
+  card.findMany.mockReset();
   deck.create.mockReset();
 });
 
@@ -63,6 +64,7 @@ describe("POST /players/me/decks", () => {
 
   it("creates a deck when slot 0 is a hero, scoped to the authed player", async () => {
     card.findUnique.mockResolvedValue({ id: "hero_vanguard", type: "hero" });
+    card.findMany.mockResolvedValue(validSlots.slice(1).map((id) => ({ id })));
     deck.create.mockResolvedValue({ id: "deck-1", playerId: "player-1", name: "My Deck", slots: validSlots });
 
     const res = await app.inject({

@@ -91,13 +91,29 @@ export async function cardsRoutes(app: FastifyInstance) {
       .parse(req.body);
 
     // Slot 0 must be a hero card — this is a rule check, not just a UI
-    // convention, so it belongs server-side. Duplicate-card and full
-    // elixir-curve validation should land here too before this ships.
+    // convention, so it belongs server-side.
     const heroCard = await prisma.card.findUnique({ where: { id: body.slots[0] } });
     if (!heroCard || heroCard.type !== "hero") {
       return reply.code(400).send({ error: "slot_0_must_be_hero" });
     }
 
+    // No card may appear twice in the same deck.
+    if (new Set(body.slots).size !== body.slots.length) {
+      return reply.code(400).send({ error: "duplicate_card_in_deck" });
+    }
+
+    // Slots 1-7 were never checked against the catalog at all before this —
+    // only slot 0 was looked up. Reject any slot that doesn't name a real
+    // card instead of silently saving a deck with dead references.
+    const nonHeroSlots = body.slots.slice(1);
+    const matchedCards = await prisma.card.findMany({ where: { id: { in: nonHeroSlots } } });
+    if (matchedCards.length !== nonHeroSlots.length) {
+      return reply.code(400).send({ error: "unknown_card_in_deck" });
+    }
+
+    // Elixir-curve cap is deliberately not enforced here: the PRD gives a
+    // cost range (1-9, hero fixed at 5) but no numeric average/sum cap, and
+    // inventing one isn't a code fix — it's a product decision still open.
     return prisma.deck.create({
       data: { playerId: req.playerId!, name: body.name, slots: body.slots },
     });

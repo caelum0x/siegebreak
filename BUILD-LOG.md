@@ -3,6 +3,44 @@
 Running log of real feature/fix work on this repo, newest first. Not a plan doc —
 only things actually implemented, verified, and pushed.
 
+## 2026-10-24 — Deck validation: duplicate cards + unknown card IDs now rejected
+
+**Gap found:** `POST /players/me/decks` only ever validated slot 0 (must be a
+hero). Slots 1-7 were never checked against the card catalog at all — any
+string would be accepted and saved, including the same card repeated 8 times.
+The route's own comment already flagged this ("Duplicate-card ... validation
+should land here too before this ships").
+
+**Shipped (backend, `services/src/modules/cards/index.ts`):**
+- Reject a deck where any card ID repeats (`duplicate_card_in_deck`, 400) —
+  checked after the slot-0 hero check so the existing "slot 0 must be hero"
+  error still wins when both are true (matches the existing integration test's
+  expectation).
+- Reject a deck where any of slots 1-7 don't name a real card
+  (`unknown_card_in_deck`, 400) via a real `prisma.card.findMany` lookup
+  against the catalog, instead of trusting the client.
+- Deliberately left the elixir-curve cap out of this round: the PRD gives a
+  per-card cost range (1-9, hero fixed at 5) but no numeric average/sum cap to
+  enforce — inventing a threshold isn't a code fix, it's a product decision
+  still open.
+
+**Verified by actually running it** (real local Postgres `siegebreak_test` +
+real local Redis, `npx tsx src/index.ts` on a real port, no mocks): guest
+signup → real `curl` deck-create with a repeated card → `400
+duplicate_card_in_deck`; deck-create with a fabricated card ID in a non-hero
+slot → `400 unknown_card_in_deck`; deck-create with 8 real, unique cards →
+`200` with the deck persisted. Existing suites unaffected: 115 unit + 14
+integration tests (real Postgres + Redis) still green, `tsc --noEmit` clean.
+Only edit to an existing test file was adding a `card.findMany` mock to
+`test/cards.test.ts` so the new lookup doesn't throw against the mocked
+Prisma client — no new test files, no new test cases.
+
+**Next up (not yet done):** elixir-curve cap (needs a product decision on the
+actual number), deck ownership validation (must-own-every-slotted-card — still
+blocked on the catalog-wide vs. collection-only decision noted in the prior
+round), chest/shop UI for the shard economy, the actual MVP `.unity` scene so
+the combat loop shipped last round can be Editor-verified for real.
+
 ## 2026-10-24 — Combat loop wired to the real relay (bots → real opponent)
 
 **Gap found:** the previous round shipped a verified, real 1v1 relay transport
