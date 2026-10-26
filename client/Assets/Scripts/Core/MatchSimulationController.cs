@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Siegebreak.Cards;
 using Siegebreak.Networking;
+using Siegebreak.Services;
 
 namespace Siegebreak.Core
 {
@@ -38,8 +39,11 @@ namespace Siegebreak.Core
         /// <summary>Raised when this client's own deploy was rejected by the authority (insufficient elixir, unknown card, etc).</summary>
         public event Action<CardData> OnLocalDeployRejected;
 
+        private readonly SessionClient _sessionClient = new SessionClient();
         private MatchHostSimulator _hostSimulator;
         private MatchSnapshotRenderer _guestRenderer;
+        private List<string> _relayParticipantPlayerIds; // host-first, from RelayWelcome.participants
+        private bool _resultReported;
 
         private void Awake()
         {
@@ -51,14 +55,28 @@ namespace Siegebreak.Core
 
         private void OnEnable()
         {
-            if (network == null) return;
-            network.OnMatchFrame += HandleMatchFrame;
+            if (network != null)
+            {
+                network.OnMatchFrame += HandleMatchFrame;
+                network.OnRoleAssigned += HandleRoleAssigned;
+            }
+            if (matchState != null)
+            {
+                matchState.OnMatchFinished += HandleMatchFinished;
+            }
         }
 
         private void OnDisable()
         {
-            if (network == null) return;
-            network.OnMatchFrame -= HandleMatchFrame;
+            if (network != null)
+            {
+                network.OnMatchFrame -= HandleMatchFrame;
+                network.OnRoleAssigned -= HandleRoleAssigned;
+            }
+            if (matchState != null)
+            {
+                matchState.OnMatchFinished -= HandleMatchFinished;
+            }
         }
 
         private void Update()
@@ -135,6 +153,83 @@ namespace Siegebreak.Core
             if (!MatchWireFrame.TryParseStateSnapshot(json, out var snapshot)) return;
 
             _guestRenderer.Apply(snapshot);
+        }
+
+        // RelayWelcome.participants is host-first (see
+        // services/src/modules/sessions/sessionStore.ts hostPlayerId()), so
+        // index 0/1 map directly onto PlayerA/PlayerB (see the convention
+        // documented on MatchResult in MatchStateController.cs) without a
+        // second lookup.
+        private void HandleRoleAssigned(RelayWelcome welcome)
+        {
+            _relayParticipantPlayerIds = welcome?.participants;
+        }
+
+        // Fires only from the host's own MatchStateController.Finish() (see
+        // that class's doc) — reports the real outcome of a real played
+        // match to the backend so it actually lands rating/XP/gold/shards
+        // instead of vanishing (the gap this method closes was a bare TODO
+        // in MatchStateController.Finish until now). Guarded so it only ever
+        // runs once per match and only on the host; the guest's own copy of
+        // matchState never raises OnMatchFinished in the first place (it
+        // only ever calls SyncResultFromServer), so the `!network.IsHost`
+        // check below is belt-and-suspenders, not the only guard.
+        private void HandleMatchFinished(MatchResult result)
+        {
+            if (_resultReported || network == null || !network.IsHost) return;
+            _resultReported = true;
+            ReportMatchResult(result);
+        }
+
+        private async void ReportMatchResult(MatchResult result)
+        {
+            if (_relayParticipantPlayerIds == null || _relayParticipantPlayerIds.Count < 2)
+            {
+                Debug.LogWarning("[MatchSimulationController] Can't report match result: no participant roster from the relay welcome frame yet.");
+                return;
+            }
+            if (string.IsNullOrEmpty(network.SessionId))
+            {
+                Debug.LogWarning("[MatchSimulationController] Can't report match result: no session id.");
+                return;
+            }
+
+            string hostPlayerId = _relayParticipantPlayerIds[0];
+            string guestPlayerId = _relayParticipantPlayerIds[1];
+
+            string hostResult;
+            string guestResult;
+            switch (result)
+            {
+                case MatchResult.PlayerAWins:
+                    hostResult = "win";
+                    guestResult = "loss";
+                    break;
+                case MatchResult.PlayerBWins:
+                    hostResult = "loss";
+                    guestResult = "win";
+                    break;
+                case MatchResult.Draw:
+                    hostResult = "draw";
+                    guestResult = "draw";
+                    break;
+                default:
+                    // InProgress never reaches here — Finish() only invokes
+                    // OnMatchFinished with a concrete result.
+                    return;
+            }
+
+            var participants = new[]
+            {
+                new SessionCompleteParticipant { playerId = hostPlayerId, result = hostResult },
+                new SessionCompleteParticipant { playerId = guestPlayerId, result = guestResult },
+            };
+
+            bool ok = await _sessionClient.CompleteMatch(network.SessionId, participants);
+            if (!ok)
+            {
+                Debug.LogWarning("[MatchSimulationController] Backend did not accept the match-result report (already recorded, or a transient failure).");
+            }
         }
     }
 }

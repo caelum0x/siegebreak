@@ -48,3 +48,16 @@ export function matchRewards(result: MatchResult): { xp: number; gold: number } 
 export function levelForXp(totalXp: number): number {
   return 1 + Math.floor(Math.max(0, totalXp) / XP_PER_LEVEL);
 }
+
+// Symmetric trophy swing for a result, used by the host-reported completion
+// path (modules/sessions/index.ts POST /sessions/:id/complete) where there's
+// no dedicated server to hand us an authoritative trophiesDelta the way
+// POST /matches/:id/complete expects. A flat, deliberately simple number —
+// a real trophy curve (diminishing at high ranks, etc.) is a product
+// decision, not a code gap, same posture as the deferred elixir-curve cap.
+const TROPHY_DELTA = 30;
+export function trophyDelta(result: MatchResult): number {
+  if (result === "win") return TROPHY_DELTA;
+  if (result === "loss") return -TROPHY_DELTA;
+  return 0;
+}

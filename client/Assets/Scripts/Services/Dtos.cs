@@ -177,4 +177,24 @@ namespace Siegebreak.Services
         public string sessionId;
         public string error;
     }
+
+    /// <summary>One participant's outcome for POST /sessions/:id/complete.</summary>
+    [Serializable]
+    public class SessionCompleteParticipant
+    {
+        public string playerId;
+        public string result; // "win" | "loss" | "draw"
+    }
+
+    /// <summary>
+    /// Body for POST /sessions/:id/complete — only the host-side client may
+    /// send this (see services/src/modules/sessions/index.ts); the backend
+    /// derives deckId/trophiesDelta itself from the session record rather
+    /// than trusting them from the request.
+    /// </summary>
+    [Serializable]
+    public class SessionCompleteRequest
+    {
+        public SessionCompleteParticipant[] participants;
+    }
 }

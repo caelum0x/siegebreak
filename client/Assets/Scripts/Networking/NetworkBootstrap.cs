@@ -50,12 +50,21 @@ namespace Siegebreak.Networking
         public bool IsRelayConnected => _relay != null && _relay.IsConnected;
 
         /// <summary>
+        /// The session id this client last joined. Exposed so gameplay code
+        /// (MatchSimulationController, on match end) can report the result
+        /// back to POST /sessions/:id/complete without needing its own copy
+        /// of the id plumbed through separately.
+        /// </summary>
+        public string SessionId { get; private set; }
+
+        /// <summary>
         /// Resolve the allocated session for <paramref name="sessionId"/> and
         /// start the realtime transport against its room. The region is taken
         /// from the session when available, falling back to the caller's hint.
         /// </summary>
         public async Task JoinMatch(string sessionId, string region)
         {
+            SessionId = sessionId;
             GameSession session = await _sessions.GetSession(sessionId);
             if (session == null || session.connection == null)
             {

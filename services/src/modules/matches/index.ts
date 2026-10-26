@@ -22,6 +22,134 @@ const completeSchema = z.object({
     .min(2),
 });
 
+export type CompleteMatchInput = z.infer<typeof completeSchema>;
+
+export interface CompleteMatchOutcome {
+  /** HTTP status the caller should reply with. */
+  code: number;
+  body: Record<string, unknown>;
+}
+
+// The actual match-recording logic, shared by every caller that's allowed to
+// report a result: the trusted dedicated-server route below, and (see
+// modules/sessions/index.ts) the host-client-reported path for the "local"
+// relay provider, which has no dedicated server to call this from server-side.
+// Kept free of Fastify so it's a plain function either caller can await and
+// turn into whatever response shape (and auth) fits its own route.
+export async function completeMatch(id: string, body: CompleteMatchInput): Promise<CompleteMatchOutcome> {
+  // Idempotency: match ids are server-assigned and completion may be retried
+  // on network wobble, so a second completion for the same id must not double
+  // -award trophies. The Match row is the guard.
+  const existing = await prisma.match.findUnique({ where: { id } });
+  if (existing) {
+    return { code: 409, body: { error: "already_recorded" } };
+  }
+
+  // Load current rating/xp for every participant so we can derive new values.
+  // All must exist (they FK the match) — surface a clean 422 rather than a raw
+  // FK error if the server reports an unknown player.
+  const ids = body.participants.map((p) => p.playerId);
+  const players = await prisma.player.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, rating: true, xp: true },
+  });
+  const byId = new Map(players.map((p) => [p.id, p]));
+  if (byId.size !== new Set(ids).size) {
+    return { code: 422, body: { error: "unknown_player" } };
+  }
+
+  // Elo is a two-player update; for the 1v1 mode the two participants' ratings
+  // move symmetrically. Other participant counts skip Elo (rating unchanged)
+  // but still earn XP/gold.
+  const newRatingById = new Map<string, number>();
+  if (body.participants.length === 2) {
+    const [pa, pb] = body.participants;
+    const ra = byId.get(pa.playerId)!.rating;
+    const rb = byId.get(pb.playerId)!.rating;
+    const elo = computeElo(ra, rb, resultToScore(pa.result));
+    newRatingById.set(pa.playerId, elo.a);
+    newRatingById.set(pb.playerId, elo.b);
+  }
+
+  // Build the per-player progression updates (rating + xp/level + wallet gold).
+  const rewardsById = new Map(
+    body.participants.map((p) => {
+      const current = byId.get(p.playerId)!;
+      const reward = matchRewards(p.result);
+      const newXp = current.xp + reward.xp;
+      return [
+        p.playerId,
+        {
+          rating: newRatingById.get(p.playerId) ?? current.rating,
+          xp: newXp,
+          level: levelForXp(newXp),
+          gold: reward.gold,
+        },
+      ];
+    })
+  );
+
+  // Persist match, participants, and all progression in one transaction so a
+  // recorded match and its awarded rating/xp/gold can never diverge. Then
+  // update the derived leaderboard (Redis) — if that fails the ladder can be
+  // rebuilt from match_participants.
+  await prisma.$transaction([
+    prisma.match.create({
+      data: {
+        id,
+        region: body.region,
+        mode: body.mode,
+        endedAt: new Date(),
+        participants: {
+          create: body.participants.map((p) => ({
+            playerId: p.playerId,
+            deckId: p.deckId,
+            result: p.result,
+            trophiesDelta: p.trophiesDelta,
+          })),
+        },
+      },
+    }),
+    ...body.participants.flatMap((p) => {
+      const r = rewardsById.get(p.playerId)!;
+      return [
+        prisma.player.update({
+          where: { id: p.playerId },
+          data: { rating: r.rating, xp: r.xp, level: r.level },
+        }),
+        prisma.wallet.upsert({
+          where: { playerId: p.playerId },
+          create: { playerId: p.playerId, gold: r.gold },
+          update: { gold: { increment: r.gold } },
+        }),
+      ];
+    }),
+  ]);
+
+  await Promise.all(
+    body.participants.map((p) => recordMatchResult(body.seasonId, p.playerId, p.trophiesDelta))
+  );
+
+  // Card-collection progression: the deck a participant actually fielded
+  // earns shards per distinct card, scaled by outcome. Best-effort and
+  // outside the main transaction above (same tradeoff already made for the
+  // Redis leaderboard write just above) — a missed shard grant is
+  // recoverable, but it must never block a match from being recorded.
+  await Promise.all(body.participants.map((p) => awardCardShards(p.playerId, p.deckId, p.result)));
+
+  return {
+    code: 201,
+    body: {
+      status: "recorded",
+      matchId: id,
+      ratings: body.participants.map((p) => ({
+        playerId: p.playerId,
+        rating: rewardsById.get(p.playerId)!.rating,
+      })),
+    },
+  };
+}
+
 export async function matchRoutes(app: FastifyInstance) {
   // Called by the trusted game server when a match ends — never by a client,
   // hence requireMatchServer rather than requireAuth. trophiesDelta and result
@@ -30,117 +158,8 @@ export async function matchRoutes(app: FastifyInstance) {
   app.post("/matches/:id/complete", { preHandler: requireMatchServer }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = completeSchema.parse(req.body);
-
-    // Idempotency: match ids are server-assigned and completion may be retried
-    // on network wobble, so a second completion for the same id must not double
-    // -award trophies. The Match row is the guard.
-    const existing = await prisma.match.findUnique({ where: { id } });
-    if (existing) {
-      return reply.code(409).send({ error: "already_recorded" });
-    }
-
-    // Load current rating/xp for every participant so we can derive new values.
-    // All must exist (they FK the match) — surface a clean 422 rather than a raw
-    // FK error if the server reports an unknown player.
-    const ids = body.participants.map((p) => p.playerId);
-    const players = await prisma.player.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, rating: true, xp: true },
-    });
-    const byId = new Map(players.map((p) => [p.id, p]));
-    if (byId.size !== new Set(ids).size) {
-      return reply.code(422).send({ error: "unknown_player" });
-    }
-
-    // Elo is a two-player update; for the 1v1 mode the two participants' ratings
-    // move symmetrically. Other participant counts skip Elo (rating unchanged)
-    // but still earn XP/gold.
-    const newRatingById = new Map<string, number>();
-    if (body.participants.length === 2) {
-      const [pa, pb] = body.participants;
-      const ra = byId.get(pa.playerId)!.rating;
-      const rb = byId.get(pb.playerId)!.rating;
-      const elo = computeElo(ra, rb, resultToScore(pa.result));
-      newRatingById.set(pa.playerId, elo.a);
-      newRatingById.set(pb.playerId, elo.b);
-    }
-
-    // Build the per-player progression updates (rating + xp/level + wallet gold).
-    const rewardsById = new Map(
-      body.participants.map((p) => {
-        const current = byId.get(p.playerId)!;
-        const reward = matchRewards(p.result);
-        const newXp = current.xp + reward.xp;
-        return [
-          p.playerId,
-          {
-            rating: newRatingById.get(p.playerId) ?? current.rating,
-            xp: newXp,
-            level: levelForXp(newXp),
-            gold: reward.gold,
-          },
-        ];
-      })
-    );
-
-    // Persist match, participants, and all progression in one transaction so a
-    // recorded match and its awarded rating/xp/gold can never diverge. Then
-    // update the derived leaderboard (Redis) — if that fails the ladder can be
-    // rebuilt from match_participants.
-    await prisma.$transaction([
-      prisma.match.create({
-        data: {
-          id,
-          region: body.region,
-          mode: body.mode,
-          endedAt: new Date(),
-          participants: {
-            create: body.participants.map((p) => ({
-              playerId: p.playerId,
-              deckId: p.deckId,
-              result: p.result,
-              trophiesDelta: p.trophiesDelta,
-            })),
-          },
-        },
-      }),
-      ...body.participants.flatMap((p) => {
-        const r = rewardsById.get(p.playerId)!;
-        return [
-          prisma.player.update({
-            where: { id: p.playerId },
-            data: { rating: r.rating, xp: r.xp, level: r.level },
-          }),
-          prisma.wallet.upsert({
-            where: { playerId: p.playerId },
-            create: { playerId: p.playerId, gold: r.gold },
-            update: { gold: { increment: r.gold } },
-          }),
-        ];
-      }),
-    ]);
-
-    await Promise.all(
-      body.participants.map((p) =>
-        recordMatchResult(body.seasonId, p.playerId, p.trophiesDelta)
-      )
-    );
-
-    // Card-collection progression: the deck a participant actually fielded
-    // earns shards per distinct card, scaled by outcome. Best-effort and
-    // outside the main transaction above (same tradeoff already made for the
-    // Redis leaderboard write just above) — a missed shard grant is
-    // recoverable, but it must never block a match from being recorded.
-    await Promise.all(body.participants.map((p) => awardCardShards(p.playerId, p.deckId, p.result)));
-
-    return reply.code(201).send({
-      status: "recorded",
-      matchId: id,
-      ratings: body.participants.map((p) => ({
-        playerId: p.playerId,
-        rating: rewardsById.get(p.playerId)!.rating,
-      })),
-    });
+    const outcome = await completeMatch(id, body);
+    return reply.code(outcome.code).send(outcome.body);
   });
 }
 

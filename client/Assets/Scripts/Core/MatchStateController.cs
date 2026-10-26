@@ -1,8 +1,18 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace Siegebreak.Core
 {
+    // Convention: "A" is always the host, "B" is always the guest — same
+    // host-first convention used everywhere else in this stack
+    // (services/src/modules/sessions/sessionStore.ts hostPlayerId() = the
+    // first session participant; RelayWelcome.participants[0] on the client).
+    // This matters for Finish()/OnMatchFinished below: only the host's own
+    // copy of this controller ever reaches Finish() (the guest only ever
+    // calls SyncResultFromServer, which never raises the event), so whoever
+    // consumes OnMatchFinished can map PlayerAWins/PlayerBWins straight onto
+    // "host won"/"guest won" without a second lookup.
     public enum MatchResult { InProgress, PlayerAWins, PlayerBWins, Draw }
 
     /// <summary>
@@ -20,6 +30,16 @@ namespace Siegebreak.Core
         [SerializeField] private List<TowerController> playerBTowers;
 
         public MatchResult Result { get; private set; } = MatchResult.InProgress;
+
+        /// <summary>
+        /// Raised exactly once, only from the host's own Finish() (see the
+        /// class doc on <see cref="MatchResult"/>) — the real signal that
+        /// was previously just a TODO comment here, now consumed by
+        /// MatchSimulationController to report the outcome to the backend
+        /// (POST /sessions/:id/complete) so a real played match actually
+        /// lands rating/XP/gold/shards instead of vanishing.
+        /// </summary>
+        public event Action<MatchResult> OnMatchFinished;
 
         private float _elapsed;
         private bool _inOvertime;
@@ -81,9 +101,7 @@ namespace Siegebreak.Core
         private void Finish(MatchResult result)
         {
             Result = result;
-            // TODO: notify NetworkBootstrap / backend to record match result
-            // (services/src/modules/leaderboard -> recordMatchResult) and
-            // trigger the client's MatchResultUI.
+            OnMatchFinished?.Invoke(result);
         }
 
         // Guest-side reconciliation only: the guest never runs ServerTick

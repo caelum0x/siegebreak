@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { verifyAccessToken } from "../../lib/jwt";
 import { enqueue, dequeue, getStatus } from "./matcher";
 import { registerSocket, matchFoundMessage } from "./notifier";
+import { getSession } from "../sessions/sessionStore";
 
 const FALLBACK_MMR = 1000; // only used if the player row somehow lacks a rating
 
@@ -22,6 +23,30 @@ export function tokenFromQuery(query: unknown): string | null {
 export async function matchmakingRoutes(app: FastifyInstance) {
   app.post("/matchmaking/queue", { preHandler: requireAuth }, async (req, reply) => {
     const { deckId } = z.object({ deckId: z.string() }).parse(req.body);
+
+    // Guard against re-queueing a player who's already matched into a live
+    // session: enqueue()/runMatchTick() never checked the caller's current
+    // ticket state before this, so a client bug (a timed-out request retried
+    // after it actually landed, an app background/foreground re-firing
+    // "find match") — or simply a player abandoning a losing match on
+    // purpose — could re-pair them into a *second* session while their first
+    // opponent's ticket still points at the original one. That opponent is
+    // then stuck: nobody else ever connects to that session's relay, there's
+    // no timeout, and matches/:id/complete.. ratings, XP, gold, shards, all
+    // of it... never resolves for them. Block the re-queue instead while a
+    // session from a previous match is still actually live.
+    const existingTicket = await getStatus(req.playerId!);
+    if (existingTicket?.status === "matched" && existingTicket.sessionId) {
+      const stillLive = await getSession(existingTicket.sessionId);
+      if (stillLive) {
+        return reply.code(409).send({ error: "already_in_match", sessionId: existingTicket.sessionId });
+      }
+      // The session behind this ticket no longer exists (past its 1h TTL,
+      // or already completed and cleared by POST /sessions/:id/complete) —
+      // the ticket is just stale bookkeeping at this point, safe to fall
+      // through and overwrite with a fresh one below.
+    }
+
     // Queue at the player's persisted rating so pairing reflects real skill,
     // not a flat constant. Rating is updated on match completion (see matches).
     const player = await prisma.player.findUnique({
