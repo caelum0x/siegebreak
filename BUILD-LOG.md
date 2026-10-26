@@ -3,6 +3,141 @@
 Running log of real feature/fix work on this repo, newest first. Not a plan doc —
 only things actually implemented, verified, and pushed.
 
+## 2026-10-26 — Real match results were unreachable + a matchmaking ghost-opponent bug
+
+**Gap found (the big one):** every piece of the progression backend built
+across the last several rounds — Elo rating, XP, gold, card shards, match
+history, the Redis leaderboard — was completely unreachable for any match
+actually played over the only working transport. `POST
+/matches/:id/complete` is gated by `requireMatchServer`
+(`MATCH_SERVER_SECRET`), explicitly "never by a client" — but under
+`SESSION_PROVIDER=local` there is no separate trusted game server; the host
+*client* runs the authoritative simulation (`MatchHostSimulator`) and is the
+only thing that ever learns the real outcome. Confirmed this by reading
+`MatchStateController.Finish()`: it was a bare `// TODO: notify
+NetworkBootstrap / backend to record match result` with no code behind it,
+and grepping the whole client + services tree found zero callers of
+`/matches/:id/complete` anywhere outside tests. A fully played real 1v1
+(real matchmaking, real WS relay, real king-tower-destroyed win) would just
+vanish — zero effect on rating/XP/gold/shards/history/leaderboard.
+
+**Second gap found while probing the first one (real, reproduced):** nothing
+in `/matchmaking/queue` checked a caller's existing ticket state before
+re-enqueueing them. Scripted a real repro against the real backend: A and B
+queue and get matched into session S1; A calls `/matchmaking/queue` again
+(simulating a client retry-on-timeout, an app background/foreground
+re-firing "find match", or a player just abandoning a losing match on
+purpose); A gets paired into a brand new session S2 with a third player C.
+B's ticket still points at S1 — nobody else ever connects to that session's
+relay, there's no timeout, and B is permanently stuck with no way to detect
+or recover. Confirmed via `/tmp/sb_probe2.mjs` against a real running
+instance before the fix (A ends up in S2, B still shows `sessionId: S1`, C
+is in S2 with A — three real players, two real stuck/duplicated sessions).
+
+**Shipped (backend, `services/src`):**
+- `modules/matches/index.ts` — extracted the actual match-recording logic
+  (idempotency check, Elo, XP/gold/level updates, the DB transaction,
+  leaderboard write, card-shard award) out of the route handler into an
+  exported `completeMatch(id, body)`, reusable by any caller that's allowed
+  to report a result. The trusted-server route is now a thin wrapper around it.
+- `modules/sessions/index.ts` — new `POST /sessions/:id/complete` (JWT
+  `requireAuth`, not the server secret). Only the session's deterministic
+  host (`sessionStore.hostPlayerId` — same "first participant" rule the
+  relay already uses) may call it; a non-host gets the same
+  not-found-not-forbidden 404 the relay route already uses. Validates the
+  reported participant set is *exactly* this session's participants (no
+  substitutions), rejects an invalid result pairing for the 1v1 mode (e.g.
+  both players "win"), and derives `deckId`/`trophiesDelta` itself from the
+  session record and a new pure `trophyDelta()` helper rather than trusting
+  either from the request — the host can tell us who won, nothing else.
+  This doesn't make the host a trusted server the way `MATCH_SERVER_SECRET`
+  is trusted (a motivated host could still misreport the win/loss itself) —
+  that's an inherent limit of not having a dedicated server for the "local"
+  provider, same posture as every other doc in this repo about that
+  provider. It closes the "every real match vanishes" gap, which is
+  strictly worse.
+- `lib/rating.ts` — added `trophyDelta(result)`: flat ±30 win/loss, 0 draw.
+  Deliberately simple (same tradeoff as the deferred elixir-curve cap) — a
+  real trophy curve is a product decision, not a code gap.
+- `modules/matchmaking/index.ts` — `/matchmaking/queue` now checks the
+  caller's existing ticket before re-enqueueing: if it's `"matched"` and the
+  session behind it is still live (`getSession` returns non-null), reject
+  with `409 already_in_match` instead of silently creating a second session
+  and stranding whoever they were already matched with. If the session is
+  gone (past its 1h TTL, or already completed — see below), the stale ticket
+  is treated as harmless and the queue proceeds normally.
+- `modules/sessions/index.ts` — on a successful `/sessions/:id/complete`,
+  both participants' matchmaking tickets are cleared (`dequeue`) immediately
+  so they're free to queue for a real next match right away instead of
+  waiting out the session's 1h TTL (which would otherwise make the new
+  `already_in_match` guard above block **every** legitimate second match).
+
+**Shipped (Unity client, `client/Assets/Scripts`):**
+- `Core/MatchStateController.cs` — `Finish()` now raises a new
+  `event Action<MatchResult> OnMatchFinished` instead of doing nothing. Only
+  the host's own copy of this controller ever reaches `Finish()` (the guest
+  only ever calls `SyncResultFromServer`, which doesn't raise the event), so
+  whoever subscribes gets exactly one real, host-authoritative result.
+  Documented the `PlayerAWins == host won` / `PlayerBWins == guest won`
+  convention on the enum itself (host-first, matching
+  `sessionStore.hostPlayerId` / `RelayWelcome.participants[0]` everywhere
+  else in this codebase — there was no scene/prefab wiring yet to have
+  established or contradicted this, since it's still a scripts-only client).
+- `Networking/NetworkBootstrap.cs` — exposes the joined `SessionId` so
+  gameplay code doesn't need its own copy plumbed through separately.
+- `Services/SessionClient.cs` / `Services/Dtos.cs` — new
+  `CompleteMatch(sessionId, participants)` HTTP call and its DTOs.
+- `Core/MatchSimulationController.cs` — subscribes to
+  `matchState.OnMatchFinished` and `network.OnRoleAssigned` (to capture
+  `RelayWelcome.participants`, host-first); on finish, only if this client
+  is host and only once per match, maps `PlayerAWins/PlayerBWins/Draw` onto
+  win/loss/draw for the two real player ids and calls
+  `SessionClient.CompleteMatch`.
+
+**Verified by actually running it** (real local Postgres + real local Redis
+in fresh Docker containers on non-default ports, real `npx tsx
+src/index.ts`, real HTTP + WS clients driving the real server — no mocks):
+- Two real guest signups → real deck creation → real `/matchmaking/queue` →
+  real matcher tick pairs them → both connect to the real `WS
+  /sessions/:id/relay` → server reports exactly one as host.
+- Guest tries `POST /sessions/:id/complete` → real `404 session_not_found`
+  (rejected, can't tell "not your call" from "doesn't exist").
+- Host reports a real win/loss → real `201 recorded`; confirmed via `GET
+  /players/me` that rating moved by real Elo math (1000→1016 / 1000→984 for
+  an even matchup), XP/gold landed per `matchRewards`, confirmed via `GET
+  /players/me/cards` that all 8 deck cards gained shards, confirmed `GET
+  /leaderboard/s1` shows both real trophy deltas, confirmed `GET
+  /players/me/matches` shows the real match history entry.
+- Host replays the same completion → real `409 already_recorded`.
+- A separate "both players win" pairing → real `400
+  invalid_result_combination`.
+- Pre-fix repro of the ghost-opponent bug (`/tmp/sb_probe2.mjs`): confirmed
+  the stray second match actually formed (A ends up in a new session with C
+  while B's ticket is still pointed at the original, dead one).
+- Post-fix: the identical re-queue-while-matched attempt now gets real `409
+  already_in_match`, A's ticket stays on the original session, C never gets
+  paired with A (stays `"queued"`) — the stranding scenario no longer forms.
+- Post-fix, complementary check: after a real `/sessions/:id/complete`
+  success, both players immediately get `200 queued` on a fresh
+  `/matchmaking/queue` call — confirms the new guard didn't accidentally
+  make legitimate second matches impossible.
+- `tsc --noEmit` clean. 115 unit + 14 integration tests (real Postgres +
+  Redis) still green, unmodified.
+- Unity-side changes were **not** run through the Unity Editor — none is
+  installed in this sandbox (no `unity`/`mono`/`csc`/`dotnet` binary
+  available), same constraint every prior client-side round hit. Verified by
+  brace/paren balance across every edited file and cross-checking every new
+  event/method signature against every call site by hand. This is a real,
+  still-open owner-side environment gap (Unity Hub + Editor needs to be
+  installed on a machine that has one) — not something this round could
+  close, and already tracked in `PORTFOLIO-PRIORITIES-2026-10-23.md` item 7.
+
+**Deliberately not touched this round:** the season-rotation concept this
+leans on (`MATCH_SEASON_ID`, defaulted to the single evergreen `"s1"`) is a
+new minimal default, not a real season system — rotating seasons is a
+product decision; the elixir-curve cap and deck-ownership validation flagged
+in prior rounds are still outstanding, no new information on either.
+
 ## 2026-10-24 — Deck validation: duplicate cards + unknown card IDs now rejected
 
 **Gap found:** `POST /players/me/decks` only ever validated slot 0 (must be a
